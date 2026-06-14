@@ -36,6 +36,11 @@ output "node_api_gateway_access_log_group" {
   description = "API Gateway access log group for the Node REST API prod stage"
 }
 
+output "incident_reports_bucket_name" {
+  value       = aws_s3_bucket.taaops_ir_reports_bucket.bucket
+  description = "S3 bucket that stores incident reports and translated report artifacts"
+}
+
 output "waf_logs_bucket" {
   value       = var.enable_waf && var.waf_log_destination == "s3" ? aws_s3_bucket.aws-waf-logs-cf-dest[0].bucket : "N/A"
   description = "WAF logs bucket (only when WAF logging destination is s3)"

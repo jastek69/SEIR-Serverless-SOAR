@@ -29,9 +29,10 @@ resource "aws_scheduler_schedule" "unused_token_schedule" {
     arn      = aws_lambda_function.unused_token_detector.arn
     role_arn = aws_iam_role.unused_token_schedule_role.arn
 
-      input = jsonencode({
-      MessageBody = "Protections invoked by EventBridge Scheduler"
-      QueueUrl    = aws_sqs_queue.unused_token_sqs.url
+    input = jsonencode({
+      source     = "eventbridge-scheduler"
+      reason     = "Unused token check invoked by EventBridge Scheduler"
+      force_soar = false
     })
   }
 }

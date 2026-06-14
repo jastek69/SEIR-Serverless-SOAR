@@ -1,13 +1,39 @@
 #!/usr/bin/env python3
+
+# This script is for testing purposes only and should be used with caution. It is designed to help users who are in the MFA_SETUP state in AWS Cognito to complete their MFA setup and obtain tokens for testing or bootstrapping other tools. The script interacts with AWS Cognito using the AWS CLI, so it requires that the AWS CLI is installed and configured properly on the system where it is run.
+# The boostrap process is intended to be a one-time setup for users who are in the MFA_SETUP state. It guides the user through the necessary steps to complete MFA setup, including handling the SOFTWARE_TOKEN_MFA challenge if the user has already completed MFA setup but is still being challenged. The script also includes an option to send the MFA secret via email using AWS SES, which is intended for testing purposes only and should be used with caution in production environments.
+# The script performs the following steps:
+# 1. Prompts the user for their Cognito password (if not provided via command-line argument).
+# 2. Initiates authentication with Cognito using the USER_PASSWORD_AUTH flow.
+# 3. If the user is already authenticated without any challenges, it outputs the tokens.
+# 4. If the user is challenged with SOFTWARE_TOKEN_MFA, it prompts for the current TOTP code and responds to the challenge to obtain tokens.
+# 5. If the user is in MFA_SETUP, it initiates the MFA setup process, displays the new MFA secret, optionally sends it via email using AWS SES, prompts for the TOTP code to verify and complete setup, and then obtains tokens.
+#
+# This script is a one-time helper for users in MFA_SETUP state in Cognito. It performs the necessary steps to complete MFA setup and obtain tokens, which can then be used for testing or bootstrapping other tools.
+# Usage example:
+#   python mfa_bootstrap.py --username admin.test --send-secret-to admin.test@example.com
+
+
 import argparse
+import base64
+import hashlib
+import hmac
 import json
 import os
 import subprocess
+import time
+import struct
 import sys
 import getpass
 from pathlib import Path
 
+# Definitions:
 
+
+# The script will prompt for the Cognito password (if not provided via --password), then guide the user through the MFA setup process. If the user is already in MFA_SETUP, it will prompt for the current TOTP code. If not, it will initiate MFA setup, display the new secret, optionally email it via SES, and then prompt for the TOTP code to verify and complete setup. Finally, it will output export commands for the obtained tokens or write them to an env file if --write-env is specified.
+
+# subprocess will be used to process AWS CLI commands for Cognito interactions and SES email sending. All commands will capture stdout and stderr to provide clear error messages if any step fails. The script will handle various edge cases, such as missing tokens in responses or unsupported challenge types, and will print informative messages throughout the process.
+# stdout and stderr will be captured to provide clear error messages if any command fails.
 def run_cmd(args):
     proc = subprocess.run(args, capture_output=True, text=True)
     if proc.returncode != 0:
@@ -22,7 +48,8 @@ def run_cmd(args):
 def get_terraform_output(name):
     return run_cmd(["terraform", "output", "-raw", name]).strip()
 
-
+# THIS IS ONLY FOR TESTING PURPOSES. In production, MFA secrets should be handled with extreme care and not sent via email.
+# Send email via AWS SES with the MFA secret code with a warning about the sensitivity of the information. The email will include the username and the secret code, and will advise the recipient to delete the email after use.
 def send_secret_email(secret_code, username, to_email, from_email, region):
     subject = f"Cognito MFA setup secret for {username}"
     body = (
@@ -48,7 +75,7 @@ def send_secret_email(secret_code, username, to_email, from_email, region):
         ]
     )
 
-
+# Writes an env file with export lines for the ID token, access token, and refresh token (if present).
 def write_env_file(path, token_var_name, id_token, access_token, refresh_token):
     content = (
         f"export {token_var_name}=\"{id_token}\"\n"
@@ -58,7 +85,7 @@ def write_env_file(path, token_var_name, id_token, access_token, refresh_token):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
-
+# Prints token info and either writes to an env file or prints export commands to stdout.
 def emit_tokens(args, id_token, access_token, refresh_token):
     print("\nMFA/token flow complete.")
     print(f"{args.token_var} length: {len(id_token)}")
@@ -77,6 +104,22 @@ def emit_tokens(args, id_token, access_token, refresh_token):
             print(f"export REFRESH_TOKEN=\"{refresh_token}\"")
 
 
+def generate_totp(secret_code, for_time=None, interval=30, digits=6):
+    if for_time is None:
+        for_time = int(time.time())
+    normalized = secret_code.strip().replace(" ", "")
+    missing_padding = (-len(normalized)) % 8
+    if missing_padding:
+        normalized = normalized + ("=" * missing_padding)
+    key = base64.b32decode(normalized, casefold=True)
+    counter = struct.pack(">Q", int(for_time // interval))
+    digest = hmac.new(key, counter, hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    code_int = struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF
+    code = code_int % (10 ** digits)
+    return f"{code:0{digits}d}"
+
+# Define the boostrap process in the main function, which will handle the command-line arguments, perform the Cognito authentication and MFA setup flow, and emit the obtained tokens. The main function will also include error handling to catch and display any exceptions that occur during the process.
 def main():
     parser = argparse.ArgumentParser(description="One-time Cognito MFA_SETUP bootstrap helper")
     parser.add_argument("--username", required=True, help="Cognito username, e.g. admin.test")
@@ -88,6 +131,7 @@ def main():
     parser.add_argument("--write-env", default="", help="Optional file path to write export lines")
     parser.add_argument("--send-secret-to", default="", help="Optional email address to send MFA secret via SES")
     parser.add_argument("--ses-from", default="", help="SES from address. Defaults to --send-secret-to when omitted")
+    parser.add_argument("--auto-totp", action="store_true", help="Generate TOTP automatically during MFA_SETUP using the Cognito secret")
     args = parser.parse_args()
 
     try:
@@ -193,11 +237,19 @@ def main():
             sender = args.ses_from or args.send_secret_to
             send_secret_email(secret_code, args.username, args.send_secret_to, sender, args.region)
             print(f"Secret email sent to: {args.send_secret_to}")
-        print("Then wait for a fresh 30-second code window and enter it immediately.\n")
-
-        totp_code = input("Enter current 6-digit TOTP code: ").strip()
-        if not totp_code:
-            raise RuntimeError("No TOTP code provided")
+        if args.auto_totp:
+            # Use a just-rolled window so the generated code has maximum remaining lifetime.
+            now = int(time.time())
+            wait_seconds = 30 - (now % 30)
+            if wait_seconds <= 2:
+                time.sleep(wait_seconds + 1)
+            totp_code = generate_totp(secret_code)
+            print("Auto-generated TOTP for MFA setup and submitting immediately.")
+        else:
+            print("Then wait for a fresh 30-second code window and enter it immediately.\n")
+            totp_code = input("Enter current 6-digit TOTP code: ").strip()
+            if not totp_code:
+                raise RuntimeError("No TOTP code provided")
 
         verify_raw = run_cmd([
             "aws",

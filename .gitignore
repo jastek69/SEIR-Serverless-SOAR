@@ -4,6 +4,8 @@
 
 # Local directories
 archive/
+__pycache__/
+*.py[cod]
 
 # .tfstate files
 *.tfstate

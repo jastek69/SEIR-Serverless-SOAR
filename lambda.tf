@@ -183,7 +183,7 @@ resource "aws_lambda_function" "immediate_rbac_check_66" {
   }
 }
 */
- /*
+/*
   environment {
     variables = {
       ENVIRONMENT = "development"
@@ -258,12 +258,23 @@ resource "aws_lambda_function" "unused_token_detector" {
   code_sha256   = data.archive_file.unused_token_detector.output_base64sha256
 
   runtime = "python3.9"
+  timeout = 90
 
   environment {
     variables = {
       TOKEN_TRACKING_TABLE           = aws_dynamodb_table.dynamoDb_token_tracking.name
       UNUSED_TOKEN_ALERT_TOPIC_ARN   = aws_sns_topic.unused_token_alerts.arn
       UNUSED_TOKEN_THRESHOLD_MINUTES = "5"
+      TRANSLATION_BUCKET             = module.taaops_translation.input_bucket_name
+      BEDROCK_MODEL_ID               = "us.anthropic.claude-sonnet-4-6"
+      SOAR_PROMPT_PARAM_NAME         = "/bedrock/soar-prompt"
+      SOAR_MAX_OUTPUT_TOKENS         = "1800"
+      SOAR_TEMPERATURE               = "0.3"
+      SOAR_MAX_FINDINGS_IN_PROMPT    = "25"
+      SOAR_TARGET_WORDS              = "0"
+      SOAR_MAX_BULLETS_PER_SECTION   = "0"
+      SOAR_RISK_FOCUS                = "all"
+      SOAR_GENERATE_ON_EMPTY         = "true"
     }
   }
 }
@@ -297,7 +308,7 @@ resource "aws_iam_role_policy" "unused_token_detector_access" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid = "AllowReadTokenTracking"
+        Sid    = "AllowReadTokenTracking"
         Effect = "Allow"
         Action = [
           "dynamodb:Scan"
@@ -307,13 +318,33 @@ resource "aws_iam_role_policy" "unused_token_detector_access" {
         ]
       },
       {
-        Sid = "AllowPublishUnusedTokenAlerts"
+        Sid    = "AllowPublishUnusedTokenAlerts"
         Effect = "Allow"
         Action = [
           "sns:Publish"
         ]
         Resource = [
           aws_sns_topic.unused_token_alerts.arn
+        ]
+      },
+      {
+        Sid    = "AllowWriteTranslationSoarReports"
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject"
+        ]
+        Resource = [
+          "${module.taaops_translation.input_bucket_arn}/*"
+        ]
+      },
+      {
+        Sid    = "AllowReadSoarPromptParameter"
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameter"
+        ]
+        Resource = [
+          "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/bedrock/soar-prompt"
         ]
       }
     ]
@@ -364,7 +395,7 @@ resource "aws_lambda_function" "immediate_revoke_66" {
 
 
 
-  /*
+/*
   environment {
     variables = {
       ENVIRONMENT = "development"

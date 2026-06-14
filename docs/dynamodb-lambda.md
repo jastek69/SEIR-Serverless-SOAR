@@ -17,6 +17,8 @@ Provide identity-aware API access with Cognito, enforce authorization at API Gat
 
 ## Architecture diagram
 
+#### Mermaid format:
+
 ```mermaid
 flowchart LR
     C[Client App] -->|Sign in| CG[Cognito User Pool]
@@ -40,7 +42,7 @@ flowchart LR
     CW --> S3[S3 audit archive optional]
 ```
 
-ASCII fallback:
+#### ASCII format:
 
 ```text
 Client App
@@ -154,7 +156,7 @@ This document contains copy-ready snippets for token tracking and revocation usi
 
 It also includes Lambda code, environment variable wiring, and Terraform outputs.
 
-## src/easier_get_token.py
+## sample code: `easier_get_token.py` implementing DynamoDB Tracking Table
 
 ```python
 import os
@@ -170,6 +172,42 @@ dynamodb = boto3.resource("dynamodb")
 TRACKING_TABLE = os.environ.get("TOKEN_TRACKING_TABLE", "token-tracking")
 table = dynamodb.Table(TRACKING_TABLE)
 
+# token issuance - 900 sec (15 mins)
+def track_token_issue(username: str, lifetime_seconds: int = 900):
+    token_id = str(uuid.uuid4())
+    raw_token = str(uuid.uuid4())
+    token_hash = _sha256_hex(raw_token)
+        
+    issued_at = _epoch_now()
+    expires_at = issued_at + lifetime_seconds
+    
+    item = {
+        "token_id": token_id,
+        "token_hash": token_hash,
+        "username": username,
+        "Status": "active",
+        "used": False,
+        "expires_at": expires_at,
+        "issued_at_iso": _utc_iso_now()
+    }
+    
+    _tracking_table().put_item(Item=item)
+    
+    
+    print(f"Generated token for user {username}: {raw_token}")
+    
+    return {
+        "statusCode": 200,
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps(
+            {
+                "token": token_id,
+                "status": "active",
+                "expires_at": expires_at,
+                "username": username
+            }
+        ),
+    }
 
 def _utc_iso_now():
     return datetime.now(timezone.utc).isoformat()
@@ -228,7 +266,7 @@ def lambda_handler(event, context):
 ```
 
 ### Refactor Example: Lambda-safe + CLI Cognito Flow
-Lambda Handler implementation
+#### Lambda Handler implementation
 
 Flow:
 
@@ -622,6 +660,10 @@ def lambda_handler(event, context):
 ```
 
 ### Node handler claim checks (src/node_lambda.js)
+[Gognito Handler Claims](https://aws.amazon.com/blogs/security/use-amazon-cognito-to-add-claims-to-an-identity-token-for-fine-grained-authorization/): This defines the process of retrieving, decoding, and validating the JSON Web Tokens (JWTs). Fine grained Authorization.
+
+***The Risk: [Verifying JSON web tokens](https://docs.aws.amazon.com/cognito/latest/developerguide/amazon-cognito-user-pools-using-tokens-verifying-a-jwt.html)***
+JSON web tokens (JWTs) can be decoded, read, and modified easily. A modified access token creates a risk of privilege escalation. A modified ID token creates a risk of impersonation. Your application trusts your user pool as a token issuer, but what if a user intercepts the token in transit? You must ensure that your application is receiving the same token that Amazon Cognito issued.
 
 ```javascript
 exports.handler = async (event) => {
@@ -662,18 +704,27 @@ If this is configured correctly, invalid or missing JWTs are rejected by API Gat
 
 If you add Cognito resource server scopes, enforce them on API methods with `authorization_scopes` and send access tokens containing those scopes.
 
+[OAuth API Resource Server](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-define-resource-servers.html)
+After you configure a domain for your user pool, Amazon Cognito automatically provisions an OAuth 2.0 authorization server and a hosted web UI with sign-up and sign-in pages that your app can present to your users.
+
+A resource server is an OAuth 2.0 API server. To secure access-protected resources, it validates that access tokens from your user pool contain the scopes that authorize the requested method and path in the API that it protects. It verifies the issuer based on the token signature, validity based on token expiration time, and access level based on the scopes in token claims. User pool scopes are in the access token scope claim.
+
+API Authorization:
+- Access token
+- ID token
+- Verified Permissions: creates and assigns a Lambda authorizer that processes ID or access tokens from your request Authorization header. This Lambda authorizer passes your token to your policy store, where Verified Permissions compares it to policies and returns an allow or deny decision to the authorizer.
 
 ## Cognito
 
-## Cognito State and tfvar settings
-Cognito State is handled separately when enabled in tfvars: 
+### Cognito State and tfvar settings
+- Cognito State is handled separately when enabled in tfvars: 
 `cognito_state_enabled = true`
 
-Cognito backend settings are configured in the tfvars:
-cognito_state_bucket = "<name of cognito bucket>"
-cognito_state_key = "where/to/place/cognito-terraform-state.tfstate"
-cognito_state_enabled = true or false
-cognito_state_region = "us-west-2" # must match the bucket's actual region when enabled
+- Cognito backend settings are configured in the `tfvars`:
+cognito_state_bucket = `"<name of cognito bucket>"`
+- cognito_state_key = `"where/to/place/cognito-terraform-state.tfstate"`
+- cognito_state_enabled = `true` or `false`
+- cognito_state_region = `"us-west-2" # must match the bucket's actual region when enabled`
 
-## The Cognito remote state is handled in the `api.tf`
+##### NOTE: The Cognito remote state is handled in the `api.tf`
 

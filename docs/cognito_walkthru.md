@@ -1,4 +1,4 @@
-Cognito ClickOps Lab — User Authentication (No Federation)
+# Cognito ClickOps Lab — User Authentication (No Federation)
 We will do Federation in SEIR-II
 
 Objective---> “We are not building a login page. We are building an identity system that issues tokens.”

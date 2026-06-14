@@ -34,12 +34,38 @@ variable "region" {
   type        = string
 }
 
+
+# FORCE DESTROY SETTING for Dev and Prod
+variable "force_destroy" {
+  default     = true
+  description = "Whether to force destroy resources that may have dependencies (use with caution)"
+  type        = bool
+}
+
+
 # Legacy variable retained for compatibility; providers now use var.region.
 variable "region_waf_cf" {
   # default     = "us-east-1"
   default     = "us-west-2"
   description = "Legacy WAF/CloudFront region override (currently unused)"
   type        = string
+}
+
+variable "translation_kms_key_arn" {
+  description = "KMS key ARN for the translation module S3/log encryption access"
+  type        = string
+  default     = "arn:aws:kms:us-west-2:015195098145:key/fd93b975-d339-407e-8745-9149a1b2e973"
+}
+
+
+variable "common_tags" {
+  description = "Common tags to apply to all resources"
+  type        = map(string)
+  default     = {
+    Project     = "lambda-rbac-bedrock",
+    Environment = "dev",
+    Owner       = "taaops"
+  }
 }
 
 

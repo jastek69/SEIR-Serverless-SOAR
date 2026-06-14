@@ -1,29 +1,34 @@
 ☁️ Class 7 Armageddon - Brotherhood of Evil jerMutants - Wolfpack
 
-![Blackneto.jpg](/images/Blackneto.jpg "sebekgo logo")
+![Blackneto.jpg](/images/jasweeno2.jpg "sebekgo logo")
 
-![AWS](https://img.shields.io/badge/AWS-Cloud-orange?style=for-the-badge&logo=amazon-aws&logoColor=white)
-![Terraform](https://img.shields.io/badge/Terraform-%E2%89%A51.9-844FBA?style=for-the-badge&logo=terraform&logoColor=white)
-![CloudFront](https://img.shields.io/badge/CloudFront-Edge_Security-yellow?style=for-the-badge&logo=amazon-aws)
-![WAFv2](https://img.shields.io/badge/AWS_WAFv2-Real_Time_Logging-red?style=for-the-badge&logo=amazonaws)
-![Bedrock](https://img.shields.io/badge/Amazon_Bedrock-Auto_IR-black?style=for-the-badge&logo=amazon-aws)
-![Multi_Region](https://img.shields.io/badge/Multi_Region-Transit_Gateway-blue?style=for-the-badge)
-![Compliance](https://img.shields.io/badge/Compliance-HIPAA_Inspired-purple?style=for-the-badge)
-![Observability](https://img.shields.io/badge/Observability-CloudWatch_&_Bedrock-green?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-Production_Grade-success?style=for-the-badge)
+![Static Badge](https://img.shields.io/badge/IaC-Terraform-orange)![lambda](https://img.shields.io/badge/Serverless-lambda-orange)![{Cognito}](https://img.shields.io/badge/RBAC%2FJWT-Cognito-blue)![API Gateway](https://img.shields.io/badge/RestAPIs-API%20Gateway-red)![Static Badge](https://img.shields.io/badge/Real%20Time%20Logging-AWS%20WAFV2-red)![Static Badge](https://img.shields.io/badge/AutoIR-BedRock-green)![Static Badge](https://img.shields.io/badge/Observability-CloudWatch%26BedRock-green)![Static Badge](https://img.shields.io/badge/SOAR-Bedrock-green)
 
-This repository contains Serverless solutions with Lambda, S3, IAM permissions, API Gateway and WAF for security
+##### This repository contains Serverless solutions with Lambda, S3, IAM permissions, API Gateway WAF and Cognito for security, Bedrock and Cloudwatch for Observability, Bedrock for SOAR
 
 ---
 
 ## ✍️ Authors & Acknowledgments
-
 **Credit: TheoRec** for the orginal starting code base
 
+[jastek69:](https://github.com/jastek69): main repo
 
+-----
+# Supporting Documentation
 
+Refer to the `/docs` folder for detailed explanations and walkthrough instructions:
+
+- rbac-test.md for how to configure and run this repo using the bash and python scripts:
+  - `mfa_bootstrap.py` - Detailed instructions for using the mfa_boostrap.py to configure Cognito and prepare for testing
+    - `rbac_test.sh` - for testing the configuration and generating logs and Bedrock SOAR
+- dynamo-db.md - detailed information on DynamoDB tables with lambda integration
+- cognito_walkthru.md - Cognito AWS console walkthru
+- jwt.md - Cognito OAuth JWT wtih API Gateway details
+- lambda-walkthru - lambda AWS console instructions
+- WAF.md -  WAFV2 confiuration details
 
 # Terraform Templates – Reusable Skeleton
+
 1.1. Base module pattern
 
 Instructions
@@ -35,7 +40,6 @@ Root main.tf:
 Root variables.tf:
 Root outputs.tf:
 
-
 1.2. Example module for a typical lab (Lab 1 / Lab 2 structure)
 
 Sample:
@@ -45,20 +49,19 @@ You can add/remove S3/SQS/SNS/EventBridge rules per lab but reuse this structure
 Remember: “clone Lab 1’s TF, then modify resources per lab design.”
 
 ## Lambda runtimes
+
 [refer to documentation for latest version](https://docs.aws.amazon.com/lambda/latest/dg/lambda-python.html)
 Lambda is 3.14
 Java 24.x
 
-
-
 ## IAM Roles and Policies
+
 [AWS Policies](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_identity-vs-resource.html)
 Roles: for bigger organizations
 policies: smaller in scale
 
-
 IAM Policy workflow example:
-IAM = user or service 
+IAM = user or service
 IAM role = titled position bound to IAM user/service
 IAM policy = what the IAM role can access, and what actions the IAM role can take
 
@@ -67,18 +70,15 @@ IAM = "Aaron" aka @Aaron McDonald
 IAM role = traveler_SEA assigned to IAM user "Aaron"
 IAM policy = granting passport (multi-organization) access for "traveler_SEA"  to organizations attached to account "SE Asia"
 
-
-Attach roles 
-policies of Role 
-
-
+Attach roles
+policies of Role
 
 Role
 principal - IAM identity
 action
 attach: ARN
 
-IAM Identity 
+IAM Identity
 Role
 Policy attachment
 
@@ -87,11 +87,7 @@ attach
 
 S3 bucket policy attach to lambda
 
-
-
 Policy for:
-
-
 
 ***API Gateway -service***
 NOTE: could also use a Role for API gateway - use if utilizing several functions (policies) - not as secure
@@ -102,7 +98,6 @@ attach: ARN oflambda function
 
 Role of Lambda
 
-
 Summary
 POLICY consists of:
 principal: API GW
@@ -112,18 +107,19 @@ ARN: lambda function x
 Code signing
 [Code Signing](https://www.hashicorp.com/en/blog/announcing-support-for-aws-lambda-code-signing-in-the-terraform-aws-provider)
 
-
 Parenting
 /company
 /c
 
 # Part 1 - Event-Driven Order Processing Pipeline
+
 This builds a small “orders” backend where:
     - API calls create orders
     - Orders are written to Aurora
     - An asynchronous pipeline handles payment, inventory, and notification via events/queues.
 
-## Core services:
+## Core services
+
     * API Gateway (REST or HTTP API)
     * Lambda (order creation, payment processor, notification worker)
     * Aurora Serverless v2 (orders + line items)
@@ -132,7 +128,8 @@ This builds a small “orders” backend where:
     * SNS (customer notification topic)
     * S3 (optional: for order receipts/invoices)
 
-## Results:
+## Results
+
     * POST /orders writes a row into Aurora and emits an OrderCreated event to EventBridge.
     * A Lambda subscribed via EventBridge picks up OrderCreated, writes a “pending payment” record, and pushes a message to SQS.
     * A separate Lambda (triggered by SQS) “processes payment” (mock) and:
@@ -143,6 +140,7 @@ This builds a small “orders” backend where:
     * Terraform (or scripts) can tear down and recreate the whole stack.
 
 # Part 2 - Serverless Order System
+
     ## Architecture:
         * API Gateway REST/HTTP → Lambda (validation, enrichment) → SQS
         * Worker Lambda pulls from SQS, writes to Aurora orders table
@@ -151,7 +149,6 @@ This builds a small “orders” backend where:
         * Orders with invalid fields are rejected at API layer
         * SQS DLQ configured and demonstrably catches poison messages
         * Aurora schema supports indexing by order_id / customer_id
-
 
 # IMAGE CONVERSION
 
@@ -164,21 +161,19 @@ Current behavior: this Lambda copies objects from source to destination (no resi
 
 If you later add real resize/transformation logic, supported file types will depend on the image library used (for example, Sharp supports JPG/JPEG, PNG, WEBP, GIF, AVIF, and TIFF).
 
-
-
 ## Testing
 
 ## AWS Pre-Checks
+
 Verify Region in CLI is set properly
 `aws configure get region`
 
 Set Global Default Region:
 `aws configure set region us-west-2`
 
-Per command use: 
-`--region us-west-2` 
+Per command use:
+`--region us-west-2`
 `aws logs tail '/aws/lambda/image_processor' --region us-west-2 --since 10m --follow`
-
 
 1. Start CloudWatch log tail:
      `MSYS_NO_PATHCONV=1 aws logs tail '/aws/lambda/image_processor' --region us-west-2 --since 10m --follow`
@@ -259,8 +254,6 @@ If you use Git Bash on Windows, slash-prefixed AWS values (like `/aws/lambda/...
 If Git Bash still rewrites paths, run AWS commands in PowerShell:
 `aws logs tail "/aws/lambda/image_processor" --since 10m --follow`
 
-
-
 ## Quick Start Test (Current Deployment)
 
 Use these exact values from your current Terraform state/output:
@@ -302,17 +295,13 @@ Optional: confirm the log group exists (Git Bash-safe):
 ### 6) Verify Lambda invoke permission for S3
 
 `aws lambda get-policy --function-name image_processor`
-    
-
-
-
-
 
 ## CloudWatch
+
 Lambda log group and what to click once you’re in CloudWatch so you can follow new invocations live.
 Use this direct Console path (already scoped to your region/log group):
 
-https://us-west-2.console.aws.amazon.com/cloudwatch/home?region=us-west-2#logsV2:log-groups/log-group/%2Faws%2Flambda%2Fimage_processor
+<https://us-west-2.console.aws.amazon.com/cloudwatch/home?region=us-west-2#logsV2:log-groups/log-group/%2Faws%2Flambda%2Fimage_processor>
 
 CloudWatch >> Logs >> Log Management >> enter Log Group: /aws/lambda/image_processor
 Open the log group /aws/lambda/image_processor
@@ -323,7 +312,6 @@ Copy successful.
 ERROR
 AccessDenied
 
-
  live-ish view in Console:
 
 Go to CloudWatch > Logs Insights
@@ -333,9 +321,8 @@ fields @timestamp, @message
 | sort @timestamp desc
 | limit 100
 
+# Reference Links
 
-
-# Reference Links:
 [Creating Lambda Function](https://docs.aws.amazon.com/lambda/latest/dg/getting-started.html)
 [Hashicorp Registry](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lambda_function#handler-1)
 [AWS CLI create-function](https://docs.aws.amazon.com/cli/latest/reference/lambda/create-function.html)
@@ -365,10 +352,8 @@ Choose Save.
 
 [AWS tutorial - Lambda and Rest API](https://docs.aws.amazon.com/lambda/latest/dg/services-apigateway-tutorial.html)
 
-
-
-
 ## Invoke URL
+
 The Invoke URL for an Amazon API Gateway in Terraform is an attribute exported by deployment or stage resources that provides the base endpoint for accessing your API. To get the Invoke URL for a standard REST API, use the invoke_url attribute from the aws_api_gateway_stage resource. Or for newer HTTP or WebSocket APIs, the URL is retrieved from the aws_apigatewayv2_stage resource.
 
 ```hcl
@@ -383,20 +368,21 @@ output "http_api_url" {
 }
 ```
 
-# Construct the URL manually:
+# Construct the URL manually
+
 To construct the URL manually or for specific resources, you can concatenate the API ID and Region:
     - Base URL: `Format: https://{restapi_id}.execute-api.{region}.amazonaws.com/{stage_name}`
     - Full Resource Path: To point to a specific endpoint, append the resource path: `${aws_api_gateway_stage.example.invoke_url}/items`
 
 To Run:
-curl "https://f3sdn1pb3a.execute-api.us-west-2.amazonaws.com/prod/PythonResource"
+curl "<https://f3sdn1pb3a.execute-api.us-west-2.amazonaws.com/prod/PythonResource>"
 
 Python: curl "https://<api-id>.execute-api.<region>.amazonaws.com/prod/PythonResource?name=Chewbacca"
 
 Node: curl "https://<api-id>.execute-api.<region>.amazonaws.com/prod/NodeResource?name=Malgus"
 
-
 ## Invoke with CLI
+
 `
 aws lambda invoke \
   --function-name arn:aws:lambda:us-west-2:015195098145:function:python_lambda_function \
@@ -404,12 +390,12 @@ aws lambda invoke \
   response.json
   `
 
-
 ## CloudWatch Logs
+
 `MSYS_NO_PATHCONV=1 aws logs tail '/aws/lambda/python_lambda_function' --region us-west-2 --since 15m`
 
-
 locals for lambda permissions - for scalable deployments
+
 ``` python
 locals {
   api_lambda_permissions = {
@@ -434,14 +420,15 @@ resource "aws_lambda_permission" "api_gateway_permission" {
 }
 ```
 
-
 # WAF Implementation for Serverless
+
 AI cannot determine specifications
 You must determine the Law
 
 ## Test
 
 This stack exposes two REST API resources:
+
 - Python: `$(terraform output -raw api_python_invoke_url)/PythonResource`
 - Node: `$(terraform output -raw api_node_invoke_url)/NodeResource`
 
@@ -450,10 +437,12 @@ Use the Terraform outputs plus the exact resource paths shown above. The working
 ## WAF Test Modes
 
 Use `terraform.tfvars` to switch the WAF rate-based rule behavior:
+
 - Blocking mode: `waf_rate_limit_action = "block"`
 - Observation mode for API Gateway throttle testing: `waf_rate_limit_action = "count"`
 
 Apply after changing modes:
+
 ```bash
 terraform apply
 ```
@@ -461,18 +450,21 @@ terraform apply
 ## Malicious Traffic Test
 
 Normal requests:
+
 ```bash
 curl "$(terraform output -raw api_python_invoke_url)/PythonResource?name=Chewbacca"
 curl "$(terraform output -raw api_node_invoke_url)/NodeResource?name=Malgus"
 ```
 
 Suspicious input that should be blocked by WAF:
+
 ```bash
 curl "$(terraform output -raw api_python_invoke_url)/PythonResource?name=%3Cscript%3Ealert(1)%3C%2Fscript%3E"
 curl "$(terraform output -raw api_node_invoke_url)/NodeResource?name=%3Cscript%3Ealert(1)%3C%2Fscript%3E"
 ```
 
 Expected result:
+
 - Normal requests return application output.
 - Suspicious input returns HTTP `403` with `{"message":"Forbidden"}`.
 
@@ -481,6 +473,7 @@ Expected result:
 Keep WAF in `block` mode for this test.
 
 Burst traffic past the `100 requests / 300 seconds` limit and print each request so you can see when responses flip to `403`:
+
 ```bash
 base="$(terraform output -raw api_python_invoke_url)/PythonResource?name=rate-test"
 ts="$(date +%s)"
@@ -492,6 +485,7 @@ done
 ```
 
 If the burst finishes before the rule starts enforcing, poll until it does:
+
 ```bash
 for i in {1..36}; do
     code=$(curl -sS -o /dev/null -w "%{http_code}" "${base}&check=$i&ts=$ts")
@@ -502,30 +496,33 @@ done
 ```
 
 Expected result:
+
 - Early responses can still be `200`.
 - Once the rate-based rule catches up, requests return HTTP `403`.
 
-
 ## API Gateway Protection - Throttling Test
+
 1 API Gateway with 2 endpoints
 
 secure access, MCP security, SQL injections - data sanitation for AI (in and out), AI and guardrails
 
-
 To test API Gateway throttling specifically, keep WAF in `count` mode so WAF does not block first.
 
 Prerequisites:
+
 - Both REST APIs must use `endpoint_configuration { types = ["REGIONAL"] }` in `api.tf`.
 - Temporarily lower `variables.tf` defaults to:
     `api_throttle_rate_limit = 1`
     `api_throttle_burst_limit = 2`
 
 Apply the test settings:
+
 ```bash
 terraform apply
 ```
 
 Visible sequential test:
+
 ```bash
 url="$(terraform output -raw api_python_invoke_url)/PythonResource?name=throttle-test"
 
@@ -536,6 +533,7 @@ done
 ```
 
 Visible parallel test:
+
 ```bash
 url="$(terraform output -raw api_python_invoke_url)/PythonResource?name=throttle-test"
 
@@ -549,6 +547,7 @@ wait
 ```
 
 Summary count test:
+
 ```bash
 url="$(terraform output -raw api_python_invoke_url)/PythonResource?name=throttle-test"
 
@@ -562,22 +561,23 @@ wait | sort | uniq -c
 ```
 
 Expected result:
+
 - The first 1-2 requests usually return `200`.
 - Most following requests return `429`.
 - Occasional `200` responses can reappear as the token bucket refills.
 
 Restore production settings after the test:
+
 - In `variables.tf`, set `api_throttle_rate_limit = 25` and `api_throttle_burst_limit = 50`.
 - In `terraform.tfvars`, set `waf_rate_limit_action = "block"`.
 - Run `terraform apply` again.
 
-
 ## Verify WAF Logs / Metrics Go to: WAF → Your Web ACL → Overview
+
     - Look at: Allowed requests Blocked requests
 
-
-
 # S3 Logging
+
 [S3 Logging](https://docs.aws.amazon.com/waf/latest/developerguide/logging-s3.html)
 [WAF ACL Logging](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/wafv2_web_acl_logging_configuration)
 
@@ -589,13 +589,13 @@ Restore production settings after the test:
 terraform output waf_logs_bucket
 ```
 
-2. List top-level prefixes in the bucket:
+1. List top-level prefixes in the bucket:
 
 ```bash
 aws s3 ls s3://<waf-logs-bucket>/
 ```
 
-3. Check for recently written objects:
+1. Check for recently written objects:
 
 ```bash
 aws s3api list-objects-v2 \
@@ -605,7 +605,7 @@ aws s3api list-objects-v2 \
     --output table
 ```
 
-4. Filter only the AWS log prefix:
+1. Filter only the AWS log prefix:
 
 ```bash
 aws s3api list-objects-v2 \
@@ -616,14 +616,14 @@ aws s3api list-objects-v2 \
     --output table
 ```
 
-5. Confirm logging is attached to your Web ACL:
+1. Confirm logging is attached to your Web ACL:
 
 ```bash
 aws wafv2 list-web-acls --scope REGIONAL --region us-west-2
 aws wafv2 get-logging-configuration --resource-arn <web-acl-arn> --region us-west-2
 ```
 
-6. Optional quick traffic test, then re-check S3:
+1. Optional quick traffic test, then re-check S3:
 
 ```bash
 for i in {1..20}; do
@@ -643,12 +643,11 @@ done
 2. Bucket policy should allow `delivery.logs.amazonaws.com` with `aws:SourceAccount` and `aws:SourceArn` conditions.
 3. WAF logging must be enabled on the exact Web ACL ARN you are testing.
 
-
-
 # Cognito
+
 Amazon Cognito handles user authentication and authorization for your web and mobile apps. With user pools, you can easily and securely add sign-up and sign-in functionality to your apps. With identity pools (federated identities), your apps can get temporary credentials that grant users access to specific AWS resources, whether the users are anonymous or are signed in.
 [Cognito](https://docs.aws.amazon.com/cognito/)
-https://github.com/BalericaAI/lambda/blob/main/lessond_cognito/readme.md
+<https://github.com/BalericaAI/lambda/blob/main/lessond_cognito/readme.md>
 
 [Cognito REST APIs](https://docs.aws.amazon.com/apigateway/latest/developerguide/apigateway-integrate-with-cognito.html)
 
@@ -665,10 +664,7 @@ It handles:
     User management (accounts, groups)
     Token generation (JWTs) for APIs
 
-
-https://aws.amazon.com/pm/cognito/?trk=36e1404e-1051-48b6-9dd0-51db40b9c756&sc_channel=ps&ef_id=CjwKCAjwqubPBhBOEiwAzgZX2nhsEiOHEJQVaqlAYrksnh6lOFWjvE4VxyRyQ3izPOoltgjOxDh6mBoCOngQAvD_BwE:G:s&s_kwcid=AL!4422!3!795794010901!p!!g!!cognito!23527793912!187898877050&gad_campaignid=23527793912&gbraid=0AAAAADjHtp8JXL4yKgorV0cpJGxLu-Nuy&gclid=CjwKCAjwqubPBhBOEiwAzgZX2nhsEiOHEJQVaqlAYrksnh6lOFWjvE4VxyRyQ3izPOoltgjOxDh6mBoCOngQAvD_BwE
-
-
+<https://aws.amazon.com/pm/cognito/?trk=36e1404e-1051-48b6-9dd0-51db40b9c756&sc_channel=ps&ef_id=CjwKCAjwqubPBhBOEiwAzgZX2nhsEiOHEJQVaqlAYrksnh6lOFWjvE4VxyRyQ3izPOoltgjOxDh6mBoCOngQAvD_BwE:G:s&s_kwcid=AL!4422!3!795794010901!p!!g!!cognito!23527793912!187898877050&gad_campaignid=23527793912&gbraid=0AAAAADjHtp8JXL4yKgorV0cpJGxLu-Nuy&gclid=CjwKCAjwqubPBhBOEiwAzgZX2nhsEiOHEJQVaqlAYrksnh6lOFWjvE4VxyRyQ3izPOoltgjOxDh6mBoCOngQAvD_BwE>
 
 Purpose of Cognito in This Lab
 
@@ -678,13 +674,11 @@ So far, your API:
     Has WAF to filter bad traffic
     But does not know who is calling
 
-
 Cognito adds:
 
     Identity verification
     Controlled access
     Authenticated API usage
-
 
 Updated System Flow: Client → WAF → API Gateway (Cognito Auth) → Lambda → Logs
 
@@ -734,36 +728,31 @@ Use the Amazon Cognito CLI/SDK or API to sign a user in to the chosen user pool,
 
 Use a client-specific framework to call the deployed API Gateway API and supply the appropriate token in the Authorization header.
 
-
 Workflow: Client → WAF → API Gateway (Cognito Auth) → Lambda → Logs
 
 1. Create User Pool
-    * name of lambda
-    * mail, ph, and username
-    * enforce MFA
-    * select attributes
-    * create user directory
-    * view sign-in page
-    * selct user Pool and configure MFA with Authenticator apps, email, SMS for lab - in an office use auth and passkey
+    - name of lambda
+    - mail, ph, and username
+    - enforce MFA
+    - select attributes
+    - create user directory
+    - view sign-in page
+    - selct user Pool and configure MFA with Authenticator apps, email, SMS for lab - in an office use auth and passkey
 
 Configure SMS - give the Role
 role name - SMS
 password policy
 
-
 User Pools > new user pool and use new under Appl Clients > view login page
-Create a new user 
+Create a new user
 
 ZionTheo
 Armag3ddon!69
-
 
 Add a passkey
 User Pool > Password List >> Option for choice based sign in > edit MFA in blue box
 Select user verification with passkey - to enable
 edit for choice base sign in - to add
-
-
 
 Cognito ClickOps Lab — User Authentication (No Federation)
 We will do Federation in SEIR-II
@@ -783,7 +772,6 @@ Students will:
 
 Updated Flow: Client → WAF → API Gateway (Cognito Authorizer) → Lambda
 
-
 Task 1 — Create Cognito User Pool
   Navigation
   
@@ -791,9 +779,7 @@ Task 1 — Create Cognito User Pool
     Click User Pools
     Click Create user pool
 
-
 Step-by-Step Configuration
-
 
 1. Sign-in Options
 
@@ -875,7 +861,6 @@ If TOTP:
         Google Authenticator
         or Microsoft Authenticator
 
-
 Task 4 — Get JWT Token (CLI Method)
 This isn't easy. Let's go slow.
 
@@ -912,7 +897,7 @@ Use: AccessToken
 
 Task 5 — Create API Gateway Authorizer
 
-Go to API Gateway (REST API)--> Authorizers → Create New ---> Type: Cognito ---> 
+Go to API Gateway (REST API)--> Authorizers → Create New ---> Type: Cognito --->
 
 Configure:
 
@@ -925,7 +910,7 @@ Task 6 — Attach Authorizer to Methods
 For /python and For /node:
 
     Method Request --> Authorization: Cognito Authorizer
- 
+
 Task 7 — Deploy API (Again!)
 
 👉 REST API requires redeploy
@@ -933,12 +918,11 @@ Actions → Deploy API → prod
 
 Task 8 — Test
 
-Without Token ---> 
+Without Token --->
 
         curl https://<api>/prod/python 
 
  --> 401 Unauthorized
- 
 
 With Token -->  
 
@@ -946,7 +930,6 @@ With Token -->
           -H "Authorization: <ACCESS_TOKEN>" 
 
 → 200 OK
-
 
 Task 9 — Verify Behavior
 
@@ -961,29 +944,23 @@ Final Explanation
     What MFA adds?
     Why AccessToken matters?
 
-
 To get token place this in the CLI with correct username and actual password or sms MFA code:
 aws cognito-idp initiate-auth \
       --auth-flow USER_PASSWORD_AUTH \
       --client-id <CLIENT_ID> \
       --auth-parameters USERNAME=student1,PASSWORD=YourPassword
-	  
-	  
+   
 aws cognito-idp respond-to-auth-challenge \
       --client-id <CLIENT_ID> \
       --challenge-name SMS_MFA \
       --challenge-responses USERNAME=student1,SMS_MFA_CODE=123456 \
-      --session <SESSION>	  
-
-
-
+      --session <SESSION>   
 
 Error message: obtain secret hash
 [Auth Challenge](https://docs.aws.amazon.com/cli/latest/reference/cognito-idp/respond-to-auth-challenge.html)
-https://stackoverflow.com/questions/44244441/how-to-create-a-secret-hash-for-aws-cognito-using-boto3
+<https://stackoverflow.com/questions/44244441/how-to-create-a-secret-hash-for-aws-cognito-using-boto3>
 
 [Resolve Auth](https://repost.aws/knowledge-center/cognito-unable-to-verify-secret-hash)
-
 
 ```
 import sys, hmac, hashlib, base64
@@ -1000,10 +977,8 @@ secret_hash = base64.b64encode(hmac.new(key, message, digestmod=hashlib.sha256).
 print(f"Secret Hash for user '{username}': {secret_hash}")
 ```
 
-
 to run auth.pu script:
 `python3 secret_hash.py username app_client_id app_client_secret`
-
 
 Add your secret hash value as a SECRET_HASH parameter in the query string parameters of the API call.
 
@@ -1013,44 +988,42 @@ Example InitiateAuth API call that includes a SECRET_HASH parameter:
 
 only cop the hash
 
-
 `export SECRET="<key>"
 `echo $SECRET
 
-
-
 see auth flows in console > Authentication Flows: go to edit allow user password auth  ARTA, AUA, AUPA
 
+# Cognito JWT Flow Summary
 
-
-
-# Cognito JWT Flow Summary:
 reference links:
-https://repost.aws/knowledge-center/cognito-unable-to-verify-secret-hash
-https://docs.aws.amazon.com/cli/latest/reference/cognito-idp/respond-to-auth-challenge.html
+<https://repost.aws/knowledge-center/cognito-unable-to-verify-secret-hash>
+<https://docs.aws.amazon.com/cli/latest/reference/cognito-idp/respond-to-auth-challenge.html>
 
 1. Create/run a Python script to generate the Cognito `SECRET_HASH`
-	* Obtain `SECRET_HASH` by running the Python script: python auth.py ziontheo 7im6sn4tj742m8s7njfr7olqga ri6fb0nihm6p3p05k36g32318o74olvh695ht7455o64728g8t5
+ - Obtain `SECRET_HASH` by running the Python script: python auth.py ziontheo 7im6sn4tj742m8s7njfr7olqga ri6fb0nihm6p3p05k36g32318o74olvh695ht7455o64728g8t5
 
 2. Generate the `SECRET_HASH` by running the python script using:
-	* Cognito username
-	* Cognito app client ID
-	* Cognito app client secret value
+ - Cognito username
+ - Cognito app client ID
+ - Cognito app client secret value
 
 3. Call `initiate-auth` to start authentication. This initiates an authorization request and returns a session when MFA is required.
 
 Inputs:
+
 - `USERNAME`
 - `PASSWORD`
 - `SECRET_HASH`
 
 Output with MFA enabled:
+
 - `ChallengeName`
 - `Session`
 
-4. Call `respond-to-auth-challenge` to respond to the MFA session challenge.
+1. Call `respond-to-auth-challenge` to respond to the MFA session challenge.
 
 Inputs:
+
 - `USERNAME`
 - `SOFTWARE_TOKEN_MFA_CODE`
 - `SECRET_HASH`
@@ -1059,9 +1032,11 @@ Inputs:
 NOTE: the challenge name is `SOFTWARE_TOKEN_MFA`.
 
 Output:
+
 - `AuthenticationResult`
 
 Example:
+
 ```
 set +H
 MFA_CODE='123456'
@@ -1076,21 +1051,20 @@ aws cognito-idp respond-to-auth-challenge \
   --output json
 ```
 
-5. Retrieve JWTs from `AuthenticationResult`.
+1. Retrieve JWTs from `AuthenticationResult`.
 NOTE: Respond to the MFA challenge immediately because the `Session` value expires quickly.
 
 Output returns tokens:
+
 1. `AccessToken`
 2. `RefreshToken`
 3. `IdToken`
 
-
-
 NOTE on Passwords: ! in a password
-In Bash ! can mean “expand something from command history.” 
- set +H should be run before commands that include !. 
+In Bash ! can mean “expand something from command history.”
+ set +H should be run before commands that include !.
 
-Solutions: 
+Solutions:
 Run `set +H` first, then store the password in a single-quoted variable. The single quotes protect the password assignment, and `set +H` protects later commands from Bash history expansion.
 
 Step 1: use `set +H` which tells Bash to treat ! as a normal character and not a history shortcut
@@ -1098,6 +1072,7 @@ Step 1: use `set +H` which tells Bash to treat ! as a normal character and not a
 Step 2: Use single ' ' and set password as VAR PASSWORD
 
 Example:
+
 ```
 set +H
 
@@ -1112,27 +1087,13 @@ aws cognito-idp initiate-auth \
   --output json
 ```
 
-
 # TEAR DOWN
+
 Delete the Cognito user pool in AWS Cognito console.
- 
+
 IMPORTANT: Charges may apply for Cognito usage
 
-
-
-# TODO
-- clean up TF code & upload to github
-- get second lambda endpoint into API gateway
-- have clickable output for both endpoints, so both links end up with a http or rest based result
-- be able to understand, explain, and defend all TF code arguments
- - 
-
-
-
-
- # APPENDIX
-
- ## WAFV2 Notes
+# WAFV2 Notes
 
 ### Rule Management Models
 
@@ -1180,8 +1141,6 @@ This prevents Terraform from trying to "correct" externally-managed rules and av
 | AWS WAF Developer Guide - Web ACLs | [web-acl](https://docs.aws.amazon.com/waf/latest/developerguide/web-acl.html) | Understand ACL structure, evaluation order, and rule behavior |
 | AWS WAF Developer Guide - Rule groups | [waf-rule-groups](https://docs.aws.amazon.com/waf/latest/developerguide/waf-rule-groups.html) | Design reusable custom or managed rule group strategy |
 | AWS WAF API Reference - WebACL | [API_WebACL](https://docs.aws.amazon.com/waf/latest/APIReference/API_WebACL.html) | Validate low-level fields and API semantics when troubleshooting |
- 
-
 
 ```
  Client authenticates with Cognito
@@ -1198,7 +1157,6 @@ Lambda
         ↓
 CloudWatch / WAF / API Gateway logs
 ```
-
 
 1. Create Cognito User Pool
     - Choose sign-in identifiers: username, email, phone, or some combination.
@@ -1222,7 +1180,8 @@ CloudWatch / WAF / API Gateway logs
     - Create a COGNITO_USER_POOLS authorizer.
     - Point it at the Cognito user pool.
     - Attach the authorizer to the protected API method.
-    - Client must call API Gateway with: 
+    - Client must call API Gateway with:
+
     ```
     Authorization: Bearer <Cognito JWT>
     ```
@@ -1235,23 +1194,20 @@ CloudWatch / WAF / API Gateway logs
     - API Gateway invokes Lambda only after WAF allows the request and Cognito authorizer accepts the token.
     - Check API Gateway execution/access logs, Lambda CloudWatch logs, and WAF logs.
 
-
 Sources:
 
-Cognito app clients: https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html
-Cognito MFA: https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-mfa.html
-API Gateway Cognito authorizer: https://docs.aws.amazon.com/apigateway/latest/developerguide/apigateway-integrate-with-cognito.html
-
+Cognito app clients: <https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html>
+Cognito MFA: <https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-mfa.html>
+API Gateway Cognito authorizer: <https://docs.aws.amazon.com/apigateway/latest/developerguide/apigateway-integrate-with-cognito.html>
 
 ## Attach to API Gateway Method and Redeploy
 
 attach the Cognito authorizer to:
+
 ```
 /PythonResource
   GET
   ```
-
-
 
 In the API Gateway console, use the REST API named PythonAPI:
 
@@ -1262,28 +1218,25 @@ In the API Gateway console, use the REST API named PythonAPI:
 5. Change authorization from NONE to your Cognito authorizer.
 6. Save.
 7. Deploy the API to stage: `prod`
-8. Click Deploy 
-
-
-
+8. Click Deploy
 
 ## TOKENS
-NOTE: for Rest API 
+
+NOTE: for Rest API
 
 REST API Cognito authorizer used as simple authentication, use the ID token instead.
 
 AWS’s REST API Cognito flow is split this way:
-* ID token: accepted for basic REST API Cognito authorizer authentication.
-* Access token: use it when the API method has Authorization scopes configured and the token carries an accepted scope.
-
+- ID token: accepted for basic REST API Cognito authorizer authentication.
+- Access token: use it when the API method has Authorization scopes configured and the token carries an accepted scope.
 
 APIs or Cognito self-service endpoints. (docs.aws.amazon.com)
 
 Cognito tokens:
 docs.aws.amazon.com
-Token	Main question	Typical contents	In your API test
-ID_TOKEN	“Who is this user?”	Identity claims such as username, email, name, aud, token_use = "id"	Works for basic Cognito authentication on a REST API method
-ACCESS_TOKEN	“What is this user/app allowed to do?”	Scopes, groups, client_id, token_use = "access"	Works when the REST API method is configured to require accepted authorization scopes
+Token Main question Typical contents In your API test
+ID_TOKEN “Who is this user?” Identity claims such as username, email, name, aud, token_use = "id" Works for basic Cognito authentication on a REST API method
+ACCESS_TOKEN “What is this user/app allowed to do?” Scopes, groups, client_id, token_use = "access" Works when the REST API method is configured to require accepted authorization scopes
 
 ***[ID Token](https://docs.aws.amazon.com/cognito/latest/developerguide/amazon-cognito-user-pools-using-the-id-token.html)***
 purpose: authentication / identity
@@ -1308,6 +1261,7 @@ The ID token is a JSON Web Token (JWT) that contains claims about the identity o
   "sub": "..."
 }
 ```
+
 - Use to prove: This request came from a signed-in Cognito user.
 - For an API Gateway REST API Cognito authorizer with no OAuth scopes configured, API Gateway treats the incoming token as an identity token and verifies the user identity against the Cognito user pool.
 
@@ -1323,13 +1277,13 @@ Purpose: authorization / access
 - access-token scopes - the mechanism to authorize API access such as a method/path.
 
 authorization-oriented - oauth:
+
 ```
 scope
 groups
 client_id
 token_use = access
 ```
-
 
 ```JSON
 {
@@ -1341,12 +1295,14 @@ token_use = access
 ```
 
 Use it when you want to authorize an operation based on permissions/scopes, for example:
+
 ```
 This caller may read orders.
 This caller may create orders.
 ```
 
 For API Gateway REST APIs specifically:
+
 - An ID token can be passed to a Cognito authorizer for basic authentication.
 - An access token is the better fit when you configure Authorization scopes on the API method and the token contains matching scopes. (docs.aws.amazon.com)
 
@@ -1356,19 +1312,18 @@ Use WAF test input to prove WAF blocking.
 ```
 
 When adding  a Cognito resource server and scopes such as:
+
 ```
 lambda-waf/read
 lambda-waf/write
 ```
+
 configure API Gateway method authorization scopes and use the ACCESS_TOKEN for permission-based API authorization.
 
-
 ## SCOPE - OAuth - REST API's
+
 [Integrate REST API with Cognito User Pool](https://docs.aws.amazon.com/apigateway/latest/developerguide/apigateway-enable-cognito-user-pool.html)
 With the COGNITO_USER_POOLS authorizer, if the OAuth Scopes option isn't specified, API Gateway treats the supplied token as an identity token and verifies the claimed identity against the one from the user pool. Otherwise, API Gateway treats the supplied token as an access token and verifies the access scopes that are claimed in the token against the authorization scopes declared on the method.
-
-
-
 
 Scope is for Cognito user self-service operations such as querying or updating the signed-in user’s Cognito attributes. It is not a custom API scope for GET /PythonResource.
 
@@ -1376,28 +1331,30 @@ When the API Gateway REST method is configured for a Cognito user pool authorize
 
 Without scope for access token API Gateway treats the token as an ID token. AWS states that when OAuth scopes are not specified for a REST API COGNITO_USER_POOLS authorizer, API Gateway treats the supplied token as an identity token.
 
-
 To make the access token path work, you would configure authorization scopes:
+
 1. In Cognito, define a resource server and custom scope, for example: `lambda-waf/read`
 
 2. Configure the app client / OAuth flow so Cognito issues an access token containing that scope.
 
 In API Gateway method authorization, require that scope for: `GET /PythonResource`
 
-4. API Gateway will evaluate:
+1. API Gateway will evaluate:
+
 ```
 ACCESS_TOKEN has required scope -> allow
 ACCESS_TOKEN lacks required scope -> deny
 ```
 
 Testing Paths:
+
 - ID token test = authentication-only REST API setup
 - Access token test = scope-based OAuth authorization setup
-
 
 ## Terraform Implementation
 
 Add Authorizer:
+
 ```
 resource "aws_api_gateway_authorizer" "python_cognito" {
   name        = "python-cognito-authorizer"
@@ -1412,8 +1369,8 @@ resource "aws_api_gateway_authorizer" "python_cognito" {
 }
 ```
 
-
 Update method from `authorization = "NONE"` to:
+
 ```
 resource "aws_api_gateway_method" "PythonMethod" {
   rest_api_id   = aws_api_gateway_rest_api.PythonAPI.id
@@ -1426,6 +1383,7 @@ resource "aws_api_gateway_method" "PythonMethod" {
 ```
 
 This tells the API Gateway to:
+
 ```
 Require a Cognito token from the Authorization header.
 Trust this Cognito user pool.
@@ -1434,6 +1392,7 @@ Trust this Cognito user pool.
 Adding Scope:
 
  want access-token scope authorization, you add scopes to the API method, for example:
+
  ```
  resource "aws_api_gateway_method" "PythonMethod" {
   rest_api_id   = aws_api_gateway_rest_api.PythonAPI.id
@@ -1449,24 +1408,21 @@ Adding Scope:
 }
 ```
 
-
 Then configure Cognito to issue an access token containing that scope, usually by defining a Cognito resource server and allowed app-client OAuth scopes. The Terraform method field for that is authorization_scopes; you still do not paste token JSON into Terraform.
 
 The decision is:
+
 - Authentication only: Cognito authorizer + method authorizer, use ID_TOKEN.
 - Authorization by permission/scope: add Cognito resource server scopes + method `authorization_scopes`, use `ACCESS_TOKEN`.
 
-
-
-
-
 ### RBAC
+
 Summary: Cognito for OAuth/JWT identity. DynamoDB for session metadata, token revocation records, OAuth state/nonce, device tracking, and audit events.
-- Cognito: 
+
+- Cognito:
   - OAuth/JWT identity
   - issue ID/access/refresh tokens
   - API validates access tokens locally using Cognito’s JWKS/public keys.
-
 
 RBAC — Role-Based Access Control
 
@@ -1482,7 +1438,6 @@ Simple Model---> User → Role → Permissions → Resource
 | -------- | ------- | ----------------- |
 | student1 | student | `/python`         |
 | admin1   | admin   | `/python + /node` |
-
 
 Purpose of RBAC in This Lab
 
@@ -1521,7 +1476,6 @@ When a user logs in, their JWT contains:
 
     "cognito:groups": ["students"]
 
-
 Why RBAC Matters????
 
 1. Scalability
@@ -1530,11 +1484,11 @@ Instead of: ---> assigning permissions per user ❌
 You:---> assign roles once✅
 Or you could assign multiple times to Lizzo.  You want that???
 
-2. Consistency
+1. Consistency
 
 All users in a role behave the same way
 
-3. Security
+1. Security
 
 You follow:
 
@@ -1578,7 +1532,7 @@ Cognito (This Lab)
     API-focused
     Cloud-native
 
-AD / Entra SEIR 
+AD / Entra SEIR
     Enterprise identity
     Corporate networks
     SSO across apps
@@ -1625,18 +1579,18 @@ Just because you log in doesn’t mean you can do everything
 Systems enforce behavior based on identity
 “RBAC is how companies survive audits.”
 
-
 - DynamoDB
   - Tables for tokens - stores session/token metadata - session tracking
   - DynamoDB TTL expires records automatically
   - DynamoDB: store business event state and processing records
   - DynamoDB support revocation - denylist check
-- Secrets Manager stores app secrets, OAuth client secrets, API keys, webhook signing secrets, etc. 
+- Secrets Manager stores app secrets, OAuth client secrets, API keys, webhook signing secrets, etc.
 - AWS Secrets Manager - rotation
 - OPA or Vault: store secrets
 - Cognito: Stateless
 
 Example DynamoDB table:
+
 ```
 AuthSessionEvents / TokenMetadata
 - user_id
@@ -1655,19 +1609,14 @@ AuthSessionEvents / TokenMetadata
 ```
 
 NOTES:
-Cognito access tokens are normally valid until expiration. 
+Cognito access tokens are normally valid until expiration.
 For immediate revocation, use either:
     - short access-token lifetimes
     - refresh-token revocation
     - DynamoDB-backed denylist check for sensitive operations
 
-
-
-
-
-
-
 # DynamoDB
+
 - DynamoDB for
   - Tables for tokens - stores session/token metadata - session tracking
   - TTL expires records automatically
@@ -1675,19 +1624,18 @@ For immediate revocation, use either:
   - Revocation - denylist check
 
 ### Create: - lessonf walkthru
+
 - DynamoDB
 - lambda functions:
-    - get_token.py 
-    - update_token.py
-    - unused-token-detector.py - locate unused tokens
-    - EventBridge schedule use the unused token for it as the target 
-    - revoke-token.py - BONUS
+  - get_token.py
+  - update_token.py
+  - unused-token-detector.py - locate unused tokens
+  - EventBridge schedule use the unused token for it as the target
+  - revoke-token.py - BONUS
 - Event Bridge - attach lambda as the target - auto generatate the execution role
 
 [lambda DynamoDB token tracking](https://github.com/aws-samples/serverless-patterns/tree/main/apigw-lambda-dynamodb-terraform)
 [apigw + DynamoDB](https://github.com/jastek69/aws-serverless-patterns/blob/main/apigw-dynamodb-terraform/main.tf)
-
-
 
 `key_schema`
 
@@ -1700,8 +1648,6 @@ defines the GSI key structure:
 one HASH key
 optional one RANGE key
 key roles only: HASH or RANGE
-
-
 
 How to write data from Lambda
 
@@ -1717,9 +1663,6 @@ token_hash: same SHA-256 hash
 expires_at: Unix epoch seconds for denylist TTL
 revoked_at_iso
 reason
-
-
-
 
 ***CORE FUNADEMENTAL SECURITY PRINCIPAL:***
 refer to DynamoDB lambda workflow
@@ -1828,15 +1771,14 @@ expires_at = current_utc_epoch + token_lifetime_seconds
 If token life is 15 minutes:
 expires_at = now + 900
 
-
-
 TODO:
+
 ## Security - Monitoring – logs, metrics, alerting
+
 - Cloudwatch - infrastructure logs, operational logs and alarms
-- S3: immutable audit archive: compliance-grade long-term records. 
+- S3: immutable audit archive: compliance-grade long-term records.
   - long-term audit evidence with Object lock for immutability
   - immutable audit archive: compliance-grade long-term records.
-
 
 NEVER STORE:
 raw access tokens
@@ -1849,72 +1791,79 @@ Example events worth recording:
 token-tracking
 
 ### Create DynamoDB
+
 courtesy: kakakakakku
 
 This pattern creates an Amazon API Gateway REST API that integrates with an Amazon DynamoDB table.
 
-Learn more about this pattern at Serverless Land Patterns: http://serverlessland.com/patterns/apigw-dynamodb-terraform
+Learn more about this pattern at Serverless Land Patterns: <http://serverlessland.com/patterns/apigw-dynamodb-terraform>
 
 Important: this application uses various AWS services and there are costs associated with these services after the Free Tier usage - please see the AWS Pricing page for details. You are responsible for any AWS costs incurred. No warranty is implied in this example.
 
 This pattern creates an Amazon API Gateway REST API that integrates with an Amazon DynamoDB table named "Pets". The API includes an API key and usage plan. The DynamoDB table includes a Global Secondary Index named "PetsType-index". The API integrates directly with the DynamoDB API and supports PutItem and Query actions.
-
-
 
 ## Testing
 
 Once the application is deployed, you can test it using the following instructions.
 
 1. The terraform outout included two things:
-	* The url to the deployed API.
-	* The Key to use with the deployed API.
+ - The url to the deployed API.
+ - The Key to use with the deployed API.
 1. To invoke the DynamoDB **PutItem** action to add a new item to the DynamoDB table:
-	* Run the below command after you replace <KEY> and <URL> with the terraform output from earlier.
-	```
-	curl -H 'x-api-key: <KEY>' -H 'Content-Type: application/json' --request POST '<URL>' --data-raw '{ "PetType": "dog", "PetName": "tito", "PetPrice": 250 }'
+ - Run the below command after you replace <KEY> and <URL> with the terraform output from earlier.
+ ```
+ curl -H 'x-api-key: <KEY>' -H 'Content-Type: application/json' --request POST '<URL>' --data-raw '{ "PetType": "dog", "PetName": "tito", "PetPrice": 250 }'
 
-	```
-	* Repeate the process as many times as you can, try doing it with different Pet Types
+ ```
+
+	- Repeate the process as many times as you can, try doing it with different Pet Types
 1. Invoke the DynamoDB **Query** action to query items by PetType in the DynamoDB table:
-	* Run the below command after you replace <KEY> and <URL> with the terraform output from earlier. Append the PetType to the URL (e.g. `/dog`).
-	```
-	curl -H 'x-api-key: <KEY>' --request GET '<URL>/dog'
-	```
-	* Repeate the process as many times as you can with different Pet Types
-	* You should receive a "200 OK" response with a list of the matching results. Example: 
-	```
-	{
-		"pets": [
-			{
-				"id": "45b33352-fea0-4e8b-8c7a-6be11ec4ff80",
-				"PetType": "dog",
-				"PetName": "tito",
+ - Run the below command after you replace <KEY> and <URL> with the terraform output from earlier. Append the PetType to the URL (e.g. `/dog`).
+ ```
+ curl -H 'x-api-key: <KEY>' --request GET '<URL>/dog'
+ ```
+
+	- Repeate the process as many times as you can with different Pet Types
+ - You should receive a "200 OK" response with a list of the matching results. Example:
+ ```
+ {
+  "pets": [
+   {
+    "id": "45b33352-fea0-4e8b-8c7a-6be11ec4ff80",
+    "PetType": "dog",
+    "PetName": "tito",
                 "PetPrice": "250"
-			}
-		]
-	}
-	```
+   }
+  ]
+ }
+ ```
 
 ## Cleanup
- 
+
 1. Change directory to the pattern directory:
+
     ```
     cd serverless-patterns/apigw-dynamodb-terraform
     ```
+
 1. Delete all created resources
+
     ```bash
     terraform destroy
     ```
+
 1. During the prompts:
-    * Enter yes
+    - Enter yes
 1. Confirm all created resources has been deleted
+
     ```bash
     terraform show
     ```
+
 ----
 
-
 ## Create Event Bridge
+
 courtesy: apopa57
 
 [EventBridge + lambda](https://github.com/aws-samples/serverless-patterns/tree/main/lambda-eventbridge-terraform)
@@ -1928,21 +1877,27 @@ Important: this application uses various AWS services and there are costs associ
 ## Deployment Instructions
 
 1. Create a new directory, navigate to that directory in a terminal and clone the GitHub repository:
+
     ```
     git clone https://github.com/aws-samples/serverless-patterns
     ```
+
 1. Change directory to the pattern directory:
+
     ```
     cd apigw-eventbridge
     ```
+
 1. From the command line, use AWS SAM to deploy the AWS resources for the pattern as specified in the template.yml file:
+
     ```
     sam deploy --guided --capabilities CAPABILITY_NAMED_IAM
     ```
+
 1. During the prompts:
-    * Enter a stack name
-    * Enter the desired AWS Region
-    * Allow SAM CLI to create IAM roles with the required permissions.
+    - Enter a stack name
+    - Enter the desired AWS Region
+    - Allow SAM CLI to create IAM roles with the required permissions.
 
     Once you have run `sam deploy --guided` mode once and saved arguments to a configuration file (samconfig.toml), you can use `sam deploy` in future to use these defaults.
 
@@ -2025,13 +1980,17 @@ Create your own either Lambda function or any other consumer for events you send
 ## Cleanup
 
 1. Delete the stack
+
     ```bash
     aws cloudformation delete-stack --stack-name STACK_NAME
     ```
+
 1. Confirm the stack has been deleted
+
     ```bash
     aws cloudformation list-stacks --query "StackSummaries[?contains(StackName,'STACK_NAME')].StackStatus"
     ```
+
 ----
 
 ## Additional resources
@@ -2041,8 +2000,8 @@ Create your own either Lambda function or any other consumer for events you send
 
 ---
 
-
 ### Navigation
+
     DynamoDB
     Create Table
 
@@ -2062,7 +2021,6 @@ Each token gets tracked:
       "used": false
     }
 
-
 Phase 2 — Modify get_token.py
 
 Now the script becomes:
@@ -2072,7 +2030,6 @@ Now the script becomes:
 
 Add DynamoDB Write---> After successful authentication:
 modify your get_token.py
-
 
     import uuid
     from datetime import datetime
@@ -2091,18 +2048,16 @@ modify your get_token.py
         }
     )
 
-
 Phase 3 — Mark Token Used
 
 When Lambda receives valid request: Update DynamoDB:
-Update your previous Lambda with this: https://github.com/BalericaAI/lambda/blob/main/lessonf/lambda/update_token.py
+Update your previous Lambda with this: <https://github.com/BalericaAI/lambda/blob/main/lessonf/lambda/update_token.py>
 
 If you want to play with headers then.... Pass token_id as header: -H "x-token-id: abc123"
 
 Phase 4 — Create Detection Lambda
 
 Lambda Name: unused-token-detector
-
 
 Purpose
 
@@ -2112,8 +2067,7 @@ Find tokens:
         AND
         older than 10 minutes
 
-
-unused_token_detector.py  Here: https://github.com/BalericaAI/lambda/blob/main/lessonf/lambda/unused_token_detector.py
+unused_token_detector.py  Here: <https://github.com/BalericaAI/lambda/blob/main/lessonf/lambda/unused_token_detector.py>
 
 Phase 5 — Event Bridge
 [EventBrodge Scheduler](https://docs.aws.amazon.com/lambda/latest/dg/with-eventbridge-scheduler.html)
@@ -2121,18 +2075,15 @@ Phase 5 — Event Bridge
 Go to ---> EventBridge Schedule
 Find this!!!!!!  You need to create a schedule, not a rule!!!!
 
-Navigation        
+Navigation
         EventBridge
         Rules
         Create Rule
-
 
         Name: unused-token-check
         Rule Type: Schedule
         Schedule: rate(5 minutes)
         Target: unused-token-detector Lambda
-
-
 
 Phase 6 — Generate Alert
 
@@ -2141,10 +2092,10 @@ Initially: CloudWatch log only
 Example: ALERT: student1 generated token but never used it
 ALERT: student2 paid Keisha rent yet didn't smash
 
-
-Refactor Summary: Lambda > 
+Refactor Summary: Lambda >
 easier_get_token.py
 Flow:
+
 1. API Gateway receives the request with the Cognito JWT.
 2. The Cognito authorizer validates the token.
 3. API Gateway puts the validated claims into the Lambda event.
@@ -2172,11 +2123,10 @@ username = claims.get("cognito:username", "unknown_user")
 While tracking receives plain value:
 
 example:
+
 ```python
 tracked = track_token_issue(username=username)
 ```
-
-
 
 the handler owns request parsing
 the tracking function only handles DynamoDB token-tracking work
@@ -2251,8 +2201,8 @@ Import is quiet and safe.
 Lambda path is non-interactive.
 CLI path is interactive by design.
 
-
 # CloudWatch
+
 [Alarm events in EventBridge](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/cloudwatch-and-eventbridge.html)
 [EvenBridge  Scheduler > CloudWatch alarm](https://serverlessland.com/patterns/eventbridge-schedule-to-cloudwatch-alarm-terraform)
 [EventBridge custom CloudWatch alarm](https://repost.aws/knowledge-center/eventbridge-custom-cloudwatch-alarm-responses)
@@ -2263,12 +2213,12 @@ Scheduler is time-based periodic maintenance.
 Alarm rule is event-based security/ops response.
 
 Alarms for:
+
 - token timeout
 Alert - token generated but never used
 
 - token revokation
 Alert token being misused by bad actor
-
 
 Direct alarm actions
 Set alarm_actions on the alarm (commonly SNS topic ARN).
@@ -2279,84 +2229,238 @@ Create an EventBridge rule for CloudWatch alarm state changes, then attach one o
 New CloudWatch alarms: add alarms.
 Rules/targets: only if you want to route alarm events through EventBridge.
 
-
-
 # Bedrock
 
-
-# GLOSSARY
-
-
-### DynamoDB Global Tables
-[textDynamoDB - GSI](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/gsi-throttling.html)
-[Using GSI](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GSI.html)
-- Global data access with local reads and writes
-    Global tables enable you to read data from and write data to any Region. DynamoDB replicates your data asynchronously to other Regions, typically within 1 second. Data replication doesn’t impact the performance of your application writes. With a global table, each replica table stores the same set of data items, and your data is eventually consistent in all Regions. While your application can perform strongly consistent reads in the same Region, the reads of data replicated from other regions of your global table are always eventually consistent, due to asynchronous nature of data replication. Transactional operations provide ACID guarantees only in the Region where the write occurs originally.
-
-- Resiliency – Global tables provide a 99.999% uptime SLA and allow you to build disaster-proof solutions with multi-Region resiliency. 
-    Your application can implement custom logic to detect when a global table’s Region becomes isolated or degraded in order to redirect reads and writes to a different Region. In addition, DynamoDB tracks any writes that have been performed but haven’t yet been propagated to other Regions. If, for some reason, the communication gets interrupted, DynamoDB propagates any pending writes when the Region comes back online.
-
-- Conflict resolution – Write conflicts can occur when writes to the same item in a global table are made simultaneously in two different Regions. To ensure data consistency, DynamoDB global tables use a last-writer-wins conflict resolution mechanism, so all the replica tables agree on the latest update and converge toward a state in which they all have identical data.
-
-- Operational efficiency – Global tables eliminate the difficult work of replicating data so you can focus on your application’s business logic. You can monitor DynamoDB using Amazon CloudWatch (see DynamoDB Metrics and dimensions) and track global tables replication delays using the ReplicationLatency metric. ReplicationLatency is expressed in milliseconds and is emitted for every source-Region/destination-Region pair.
-From a cost perspective, you pay the usual DynamoDB prices for read capacity and storage, along with data transfer charges for cross-Region replication. Write capacity is billed in terms of replicated write capacity units. Refer to Amazon DynamoDB pricing for more details.
-
-# EventBridge
-
-## Event Targets
-[EventBridge patterns](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-event-patterns.html)
-[Pattern Syntax](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-create-pattern.html)
-
-[impute template - reformatter](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-transform-target-input.html)
-[Policy Document](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-use-resource-based.html)
-
-To specify which events to send to a target, you create an event pattern. An event pattern defines the data EventBridge uses to determine whether to send the event to the target. If the event pattern matches the event, EventBridge sends the event to the target. Event patterns have the same structure as the events they match. An event pattern either matches an event or it doesn't.
-
-***Patterns***
-1. `event_pattern = <<PATTERN` (The Trigger)
-This defines what events the rule listens for. It acts as a JSON-based filter. If an incoming event from AWS services or custom applications matches the criteria you define in this pattern, the rule will activate.Example: Listening only for EC2 Instance State-change Notification events.
-
-Example: Listening only for `EC2 Instance State-change Notification` events.
-
-***Inputs***
-2. `input_template = <<EOT` (The Re-formatter)
-Allows customizing the data passed to the target. Instead of sending the raw, bulky AWS event to your Lambda or SNS topic, the Input Transformer uses a template to extract specific variables from the event and format them into a clean, human-readable string or custom JSON payload
-
-Example: Extracting the instance ID and state to create a custom notification: {"message": "Instance <instance_id> is now <state>"}.
-
-Input Path is used to define variables. Use JSON path to reference items in your event and store those values in variables. For instance, you could create an Input Path to reference values in the example event by entering the following in the first text box. You can also use brackets and indices to get items from arrays.
-
-
-example: This defines four variables, <timestamp>, <instance>, <state>, and <resource>. You can reference these variables as you create your Input Template.
-```json
-{
-  "timestamp" : "$.time",
-  "instance" : "$.detail.instance-id", 
-  "state" : "$.detail.state",
-  "resource" : "$.resources[0]"
-}
-```
-
-The Input Template is a template for the information you want to pass to your target. 
-You can create a template that passes either a string or JSON to the target. Using the previous event and Input Path, the following Input Template examples will transform the event to the example output before routing it to a target.
-
-***Policy document***
-3. policy_document = <<POLICY (The Permissions)
-This defines who or what is allowed to invoke or modify the event rule. This acts as an IAM resource-based policy. It specifies which AWS services or accounts have the permissions to send events to your custom event bus or trigger specific targets
-
-example: Example: Granting EventBridge the permission to send messages to an SNS topic or a CloudWatch log group.
-
-When a rule runs in EventBridge, all of the targets associated with the rule are invoked. Rules can invoke AWS Lambda functions, publish to Amazon SNS topics, or relay the event to Kinesis streams. To make API calls against the resources you own, EventBridge needs the appropriate permissions. For Amazon CloudWatch Logs resources, EventBridge uses resource-based policies. For Lambda, Amazon SNS, and Amazon SQS resources, EventBridge can use either an IAM execution role or a resource-based policy. For Kinesis streams, EventBridge uses identity-based policies.
+# DynamoDB
 
 # S3
 
-
-
-
 # AWS API Gateway to Amazon EventBridge
 
+# Bedrock SOAR (Security Orchestration, Automation, and Response)
 
+```
+detect events
+automate investigation steps
+perform responses
+coordinate multiple security tools together
+```
 
+SOAR Changes Model
+
+```
+    Event
+    → Automated detection
+    → Automated enrichment
+    → Automated decision
+    → Automated response
+    → Human escalation if needed
+```
+
+## SSM Parameter store
+
+In this repo, SSM is being used as the runtime prompt store for SOAR, so the Lambda can fetch prompt text dynamically instead of hardcoding it.
+
+1. Terraform creates an SSM parameter named /bedrock/soar-prompt in bedrock.tf:361.
+2. The parameter value is loaded from your local prompt file soar-prompt.txt:1 via bedrock.tf:364.
+3. The Lambda is told which parameter to read through env var SOAR_PROMPT_PARAM_NAME in lambda.tf:270.
+4. At runtime, the detector reads that env var in unused_token_detector.py:17, then calls SSM GetParameter in unused_token_detector.py:58.
+5. If SSM returns a value, that prompt is used and marked as source ssm in unused_token_detector.py:62.
+6. If SSM is missing/unavailable, it falls back to built-in text and marks source fallback in unused_token_detector.py:67.
+
+### Example relevant settings
+
+Terraform parameter definition:
+
+```hcl
+resource "aws_ssm_parameter" "soar_prompt" {
+  name  = "/bedrock/soar-prompt"
+  type  = "String"
+  value = file("${path.module}/prompts/soar-prompt.txt")
+}
+```
+
+Lambda environment settings:
+
+```hcl
+environment {
+  variables = {
+    SOAR_PROMPT_PARAM_NAME      = "/bedrock/soar-prompt"
+    BEDROCK_MODEL_ID            = "us.anthropic.claude-sonnet-4-6"
+    SOAR_MAX_OUTPUT_TOKENS      = "1800"
+    SOAR_TEMPERATURE            = "0.3"
+    SOAR_MAX_FINDINGS_IN_PROMPT = "25"
+  }
+}
+```
+
+CLI validation and update examples:
+
+```bash
+# Read current prompt text from SSM
+aws ssm get-parameter \
+  --name /bedrock/soar-prompt \
+  --region us-west-2 \
+  --query 'Parameter.Value' \
+  --output text
+
+# Update prompt text from local file without full terraform apply
+aws ssm put-parameter \
+  --name /bedrock/soar-prompt \
+  --type String \
+  --overwrite \
+  --value "$(cat prompts/soar-prompt.txt)" \
+  --region us-west-2
+
+# Confirm Lambda has the expected parameter name configured
+aws lambda get-function-configuration \
+  --function-name unused_token_detector_function \
+  --region us-west-2 \
+  --query 'Environment.Variables.SOAR_PROMPT_PARAM_NAME' \
+  --output text
+```
+
+Operational notes:
+
+- After terraform destroy, /bedrock/soar-prompt is removed and runtime falls back to the in-code prompt.
+- After terraform apply, SSM is recreated from prompts/soar-prompt.txt.
+- If report style looks unexpected, check Prompt Source in the SOAR report metadata first (ssm vs fallback).
+
+### Additional useful settings (and impact)
+
+These are the most useful tuning knobs for SOAR report behavior in this project.
+
+- SOAR_TEMPERATURE (example: 0.3)
+  - Impact: Controls randomness/creativity of Bedrock output.
+  - Lower values (0.1-0.3): More consistent, prompt-faithful responses.
+  - Higher values (0.6+): More varied and creative wording, but more drift risk.
+
+- SOAR_MAX_OUTPUT_TOKENS (example: 1800)
+  - Impact: Caps maximum output size from the model.
+  - Lower values: Shorter, tighter reports.
+  - Higher values: More detailed/deep analysis, higher token usage and cost.
+
+- SOAR_TARGET_WORDS (example: 350)
+  - Impact: Adds a target report length instruction to the model prompt.
+  - Set to 0 to disable.
+  - Useful for consistently shorter summaries without changing the base prompt template.
+
+- SOAR_MAX_BULLETS_PER_SECTION (example: 4)
+  - Impact: Adds guidance that limits bullet count per section.
+  - Set to 0 to disable.
+  - Useful when you want compact section outputs.
+
+- SOAR_RISK_FOCUS (example: high-and-critical)
+  - Impact: Prioritizes High/Critical issues in model output.
+  - Supported values: all, high, high-only, high_critical, high-and-critical.
+  - Useful for management-style triage reports focused on top risk.
+
+- BEDROCK_MODEL_ID (example: us.anthropic.claude-sonnet-4-6)
+  - Impact: Determines model capability, style, and cost profile.
+  - Larger/stronger models generally provide better reasoning depth.
+
+- SOAR_MAX_FINDINGS_IN_PROMPT (example: 25)
+  - Impact: How many token findings are included in prompt context.
+  - Lower values: Faster/cheaper, less context.
+  - Higher values: Richer context, potentially better analysis quality.
+
+- UNUSED_TOKEN_THRESHOLD_MINUTES (example: 5)
+  - Impact: Defines what counts as a stale token for detector findings.
+  - Lower values: More sensitive (more alerts/noise).
+  - Higher values: Less sensitive (fewer alerts, potential missed early signal).
+
+- SOAR_PROMPT_PARAM_NAME (example: /bedrock/soar-prompt)
+  - Impact: Selects which SSM parameter is used as the runtime prompt source.
+  - Useful for environment-specific prompts (dev/stage/prod).
+
+- Lambda timeout for unused_token_detector_function (example: 30-60 seconds)
+  - Impact: Maximum runtime for scan + Bedrock generation.
+  - Too low may cause timed out SOAR generation.
+
+Optional advanced model controls (if you choose to wire them into code):
+
+- SOAR_TOP_P
+  - Impact: Nucleus sampling; limits token choice to top probability mass.
+  - Often tuned alongside temperature, but usually leave default unless needed.
+
+- SOAR_STOP_SEQUENCES
+  - Impact: Forces generation to stop at specified delimiters.
+  - Useful to prevent runaway sections or enforce strict report boundaries.
+
+### SOAR Target Controls
+
+These controls shape how detailed and focused SOAR analysis should be:
+
+- SOAR_TARGET_WORDS > 0 adds a target report length.
+- SOAR_MAX_BULLETS_PER_SECTION > 0 adds a per-section bullet cap.
+- SOAR_RISK_FOCUS=high-and-critical prioritizes high/critical findings first.
+
+Defaults (deep analysis mode):
+
+```env
+SOAR_TARGET_WORDS=0
+SOAR_MAX_BULLETS_PER_SECTION=0
+SOAR_RISK_FOCUS=all
+```
+
+Useful presets:
+
+Short concise report:
+
+```env
+SOAR_TARGET_WORDS=300
+SOAR_MAX_BULLETS_PER_SECTION=3
+SOAR_MAX_OUTPUT_TOKENS=700
+SOAR_TEMPERATURE=0.2
+SOAR_RISK_FOCUS=all
+```
+
+Executive high-risk triage:
+
+```env
+SOAR_TARGET_WORDS=250
+SOAR_MAX_BULLETS_PER_SECTION=3
+SOAR_MAX_OUTPUT_TOKENS=600
+SOAR_TEMPERATURE=0.2
+SOAR_RISK_FOCUS=high-and-critical
+```
+
+Deep technical analysis:
+
+```env
+SOAR_TARGET_WORDS=0
+SOAR_MAX_BULLETS_PER_SECTION=0
+SOAR_MAX_OUTPUT_TOKENS=1800
+SOAR_TEMPERATURE=0.3
+SOAR_RISK_FOCUS=all
+```
+
+Runbook note:
+
+- Recommended default for routine operations: Executive high-risk triage.
+- Use Short concise report for rapid status updates and change windows.
+- Use Deep technical analysis for incident response, post-incident review, and control-gap deep dives.
+
+### SOAR_GENERATE_ON_EMPTY
+
+Cost control feature: Enable or disable auto generate. Controls whether a SOAR report is created when there are no stale-token findings.
+
+`true`:
+
+- Always writes a SOAR report (even if findings=[])
+- Good for heartbeat/compliance evidence (“detector ran, nothing found”)
+
+`false`:
+Only writes a SOAR report when:
+
+- findings exist, or
+- run is manual/forced (manual or force_soar)
+- Good for reducing report noise/cost/storage
+
+```
+SOAR_GENERATE_ON_EMPTY=true -> soar_generated=true and files are uploaded
+SOAR_GENERATE_ON_EMPTY=false -> soar_generated=false and no SOAR files uploaded
+```
 
 credit: kakakakakku
 
@@ -2364,37 +2468,45 @@ credit: kakakakakku
 
 This pattern creates an HTTP API endpoint that directly integrates with Amazon EventBridge
 
-Learn more about this pattern at Serverless Land Patterns: https://serverlessland.com/patterns/apigateway-http-eventbridge-terraform
+Learn more about this pattern at Serverless Land Patterns: <https://serverlessland.com/patterns/apigateway-http-eventbridge-terraform>
 
 Important: this application uses various AWS services and there are costs associated with these services after the Free Tier usage - please see the [AWS Pricing page](https://aws.amazon.com/pricing/) for details. You are responsible for any AWS costs incurred. No warranty is implied in this example.
 
 ## Requirements
 
-* [Create an AWS account](https://portal.aws.amazon.com/gp/aws/developer/registration/index.html) if you do not already have one and log in. The IAM user that you use must have sufficient permissions to make necessary AWS service calls and manage AWS resources.
-* [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html) installed and configured
-* [Git Installed](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
-* [Terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli?in=terraform/aws-get-started) installed
+- [Create an AWS account](https://portal.aws.amazon.com/gp/aws/developer/registration/index.html) if you do not already have one and log in. The IAM user that you use must have sufficient permissions to make necessary AWS service calls and manage AWS resources.
+- [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html) installed and configured
+- [Git Installed](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
+- [Terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli?in=terraform/aws-get-started) installed
 
 ## Deployment Instructions
 
 1. Create a new directory, navigate to that directory in a terminal and clone the GitHub repository:
-    ``` 
+
+    ```
     git clone https://github.com/aws-samples/serverless-patterns
     ```
+
 1. Change directory to the pattern directory:
+
     ```
     cd serverless-patterns/apigw-http-eventbridge-terraform
     ```
+
 1. From the command line, initialize terraform to  to downloads and installs the providers defined in the configuration:
+
     ```
     terraform init
     ```
+
 1. From the command line, apply the configuration in the main.tf file:
+
     ```
     terraform apply
     ```
+
 1. During the prompts:
-    * Enter yes
+    - Enter yes
 1. Note the outputs from the deployment process. These contain the resource names and/or ARNs which are used for testing.
 
 ## How it works
@@ -2417,26 +2529,31 @@ curl --location --request POST '<your api endpoint>' --header 'Content-Type: app
 Then check the logs for the Lambda function from the Lambda console.
 
 ## Cleanup
- 
+
 1. Change directory to the pattern directory:
+
     ```
     cd serverless-patterns/apigw-http-eventbridge-terraform
     ```
+
 1. Delete all created resources
+
     ```bash
     terraform destroy
     ```
+
 1. During the prompts:
-    * Enter yes
+    - Enter yes
 1. Confirm all created resources has been deleted
+
     ```bash
     terraform show
     ```
+
 ----
 Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
 SPDX-License-Identifier: MIT-0
-
 
 ```
 terraform {
@@ -2565,3 +2682,70 @@ output "ScheduleName" {
 }
 
 ```
+
+# GLOSSARY
+
+### DynamoDB Global Tables
+
+[textDynamoDB - GSI](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/gsi-throttling.html)
+[Using GSI](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GSI.html)
+
+- Global data access with local reads and writes
+    Global tables enable you to read data from and write data to any Region. DynamoDB replicates your data asynchronously to other Regions, typically within 1 second. Data replication doesn’t impact the performance of your application writes. With a global table, each replica table stores the same set of data items, and your data is eventually consistent in all Regions. While your application can perform strongly consistent reads in the same Region, the reads of data replicated from other regions of your global table are always eventually consistent, due to asynchronous nature of data replication. Transactional operations provide ACID guarantees only in the Region where the write occurs originally.
+
+- Resiliency – Global tables provide a 99.999% uptime SLA and allow you to build disaster-proof solutions with multi-Region resiliency.
+    Your application can implement custom logic to detect when a global table’s Region becomes isolated or degraded in order to redirect reads and writes to a different Region. In addition, DynamoDB tracks any writes that have been performed but haven’t yet been propagated to other Regions. If, for some reason, the communication gets interrupted, DynamoDB propagates any pending writes when the Region comes back online.
+
+- Conflict resolution – Write conflicts can occur when writes to the same item in a global table are made simultaneously in two different Regions. To ensure data consistency, DynamoDB global tables use a last-writer-wins conflict resolution mechanism, so all the replica tables agree on the latest update and converge toward a state in which they all have identical data.
+
+- Operational efficiency – Global tables eliminate the difficult work of replicating data so you can focus on your application’s business logic. You can monitor DynamoDB using Amazon CloudWatch (see DynamoDB Metrics and dimensions) and track global tables replication delays using the ReplicationLatency metric. ReplicationLatency is expressed in milliseconds and is emitted for every source-Region/destination-Region pair.
+From a cost perspective, you pay the usual DynamoDB prices for read capacity and storage, along with data transfer charges for cross-Region replication. Write capacity is billed in terms of replicated write capacity units. Refer to Amazon DynamoDB pricing for more details.
+
+# EventBridge
+
+## Event Targets
+
+[EventBridge patterns](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-event-patterns.html)
+[Pattern Syntax](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-create-pattern.html)
+
+[impute template - reformatter](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-transform-target-input.html)
+[Policy Document](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-use-resource-based.html)
+
+To specify which events to send to a target, you create an event pattern. An event pattern defines the data EventBridge uses to determine whether to send the event to the target. If the event pattern matches the event, EventBridge sends the event to the target. Event patterns have the same structure as the events they match. An event pattern either matches an event or it doesn't.
+
+***Patterns***
+
+1. `event_pattern = <<PATTERN` (The Trigger)
+This defines what events the rule listens for. It acts as a JSON-based filter. If an incoming event from AWS services or custom applications matches the criteria you define in this pattern, the rule will activate.Example: Listening only for EC2 Instance State-change Notification events.
+
+Example: Listening only for `EC2 Instance State-change Notification` events.
+
+***Inputs***
+2. `input_template = <<EOT` (The Re-formatter)
+Allows customizing the data passed to the target. Instead of sending the raw, bulky AWS event to your Lambda or SNS topic, the Input Transformer uses a template to extract specific variables from the event and format them into a clean, human-readable string or custom JSON payload
+
+Example: Extracting the instance ID and state to create a custom notification: {"message": "Instance <instance_id> is now <state>"}.
+
+Input Path is used to define variables. Use JSON path to reference items in your event and store those values in variables. For instance, you could create an Input Path to reference values in the example event by entering the following in the first text box. You can also use brackets and indices to get items from arrays.
+
+example: This defines four variables, <timestamp>, <instance>, <state>, and <resource>. You can reference these variables as you create your Input Template.
+
+```json
+{
+  "timestamp" : "$.time",
+  "instance" : "$.detail.instance-id", 
+  "state" : "$.detail.state",
+  "resource" : "$.resources[0]"
+}
+```
+
+The Input Template is a template for the information you want to pass to your target.
+You can create a template that passes either a string or JSON to the target. Using the previous event and Input Path, the following Input Template examples will transform the event to the example output before routing it to a target.
+
+***Policy document***
+3. policy_document = <<POLICY (The Permissions)
+This defines who or what is allowed to invoke or modify the event rule. This acts as an IAM resource-based policy. It specifies which AWS services or accounts have the permissions to send events to your custom event bus or trigger specific targets
+
+example: Example: Granting EventBridge the permission to send messages to an SNS topic or a CloudWatch log group.
+
+When a rule runs in EventBridge, all of the targets associated with the rule are invoked. Rules can invoke AWS Lambda functions, publish to Amazon SNS topics, or relay the event to Kinesis streams. To make API calls against the resources you own, EventBridge needs the appropriate permissions. For Amazon CloudWatch Logs resources, EventBridge uses resource-based policies. For Lambda, Amazon SNS, and Amazon SQS resources, EventBridge can use either an IAM execution role or a resource-based policy. For Kinesis streams, EventBridge uses identity-based policies.

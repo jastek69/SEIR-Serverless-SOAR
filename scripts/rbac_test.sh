@@ -24,7 +24,7 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 FOLLOW_LOGS="${FOLLOW_LOGS:-false}"
 RUN_TOKEN_PRIMER="${RUN_TOKEN_PRIMER:-false}"
 TOKEN_PRIMER_SCRIPT="${TOKEN_PRIMER_SCRIPT:-$REPO_ROOT/src/easier_get_token.py}"
-REPORT_FILE="${REPORT_FILE:-$REPORTS_DIR/rbac_test_summary.md}"
+REPORT_FILE="${REPORT_FILE:-$REPORTS_DIR/rbac_test_report.md}"
 
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
     if command -v python >/dev/null 2>&1; then
@@ -75,9 +75,34 @@ run_curl_with_status() {
     printf -v "$out_var_name" '%s' "$status"
 }
 
+TEST_CHECKS=0
+TEST_FAILURES=0
+TEST_SKIPPED=0
+
+assert_status() {
+    local label="$1"
+    local expected="$2"
+    local actual="$3"
+
+    TEST_CHECKS=$((TEST_CHECKS + 1))
+    if [[ "$actual" == "$expected" ]]; then
+        echo "PASS: $label (expected=$expected actual=$actual)"
+    else
+        echo "FAIL: $label (expected=$expected actual=$actual)"
+        TEST_FAILURES=$((TEST_FAILURES + 1))
+    fi
+}
+
+skip_check() {
+    local label="$1"
+    TEST_SKIPPED=$((TEST_SKIPPED + 1))
+    echo "SKIP: $label"
+}
+
 mkdir -p "$REPORTS_DIR"
+
 {
-    echo "# RBAC and WAF Test Summary"
+    echo "# RBAC and WAF Test Report"
     echo
     echo "- Generated (UTC): $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
     echo "- Region: $REGION"
@@ -85,6 +110,10 @@ mkdir -p "$REPORTS_DIR"
     echo "- Node API: $API_NODE_BASE"
     echo
 } > "$REPORT_FILE"
+
+exec > >(tee -a "$REPORT_FILE") 2>&1
+
+echo "Writing full run transcript to: $REPORT_FILE"
 
 if [[ "$FOLLOW_LOGS" == "true" ]]; then
     LOG_TAIL_ARGS=(--since 15m --follow)
@@ -126,7 +155,8 @@ if [[ -n "$NON_ADMIN_ID_TOKEN" ]] && ! token_is_fresh "$NON_ADMIN_ID_TOKEN"; the
     NON_ADMIN_ID_TOKEN=""
 fi
 
-# Example of invoking the Python Lambda function directly for testing purposes, passing the tokens as environment variables. This can be useful for local testing or debugging without waiting for the scheduled EventBridge rule to trigger the Lambda function.
+# Example of invoking the Python Lambda function directly for testing purposes, passing the tokens as environment variables.
+# This can be useful for local testing or debugging without waiting for the scheduled EventBridge rule to trigger the Lambda function.
 echo "Invoking Python Lambda function directly for testing..."
 aws lambda invoke \
     --function-name "python_lambda_function" \
@@ -157,6 +187,15 @@ aws lambda invoke \
     invalid_response.json
 echo "Python Lambda function invoked with invalid tokens. Response saved to invalid_response.json."
 
+echo "Invoking unused token detector manually with SOAR forced..."
+aws lambda invoke \
+    --function-name "unused_token_detector_function" \
+    --payload '{"manual":true,"force_soar":true,"reason":"Operator-requested unused token review"}' \
+    --region "$REGION" \
+    --cli-binary-format raw-in-base64-out \
+    unused-detector-response.json
+echo "Unused token detector invoked. Response saved to unused-detector-response.json."
+
 echo "Testing script execution completed. Check the generated reports in $REPORTS_DIR and the Lambda responses in response.json, node_response.json, and invalid_response.json for results."    
 
 
@@ -164,20 +203,28 @@ echo "Testing script execution completed. Check the generated reports in $REPORT
 # Setting NON_ADMIN_ID_TOKEN to a valid token from a non-admin user will directly test the RBAC deny path and ensure that it returns the expected 403 Forbidden response when accessing protected resources.
 # If NON_ADMIN_ID_TOKEN is not set, the script will skip the RBAC deny test and provide a message indicating how to enable it.
 echo "testing Negative auth scenario with Node Lambda function..."
-curl -i "$API_PY_BASE/PythonResource"
-curl -i "$API_NODE_BASE/NodeResource"
+run_curl_with_status PY_NO_TOKEN_STATUS "$API_PY_BASE/PythonResource"
+run_curl_with_status NODE_NO_TOKEN_STATUS "$API_NODE_BASE/NodeResource"
+assert_status "Python no-token auth" "401" "$PY_NO_TOKEN_STATUS"
+assert_status "Node no-token auth" "401" "$NODE_NO_TOKEN_STATUS"
 
-if [[ -n "${ID_TOKEN:-}" ]]; then
+if [[ -n "${VALID_ID_TOKEN:-}" ]]; then
     echo "Positive auth test (valid token)"
-    curl -i "$API_PY_BASE/PythonResource?name=theo" -H "Authorization: $VALID_ID_TOKEN"
-    curl -i "$API_NODE_BASE/NodeResource?name=theo" -H "Authorization: $VALID_ID_TOKEN"
+    run_curl_with_status PY_ADMIN_STATUS "$API_PY_BASE/PythonResource?name=theo" -H "Authorization: $VALID_ID_TOKEN"
+    run_curl_with_status NODE_ADMIN_STATUS "$API_NODE_BASE/NodeResource?name=theo" -H "Authorization: $VALID_ID_TOKEN"
+    assert_status "Python admin auth" "200" "$PY_ADMIN_STATUS"
+    assert_status "Node admin auth" "200" "$NODE_ADMIN_STATUS"
 
     if [[ -n "$NON_ADMIN_ID_TOKEN" ]]; then
         echo "RBAC deny test with non-admin token (expected: 403)"
-        curl -i "$API_PY_BASE/PythonResource?name=denied" -H "Authorization: $NON_ADMIN_ID_TOKEN"
-        curl -i "$API_NODE_BASE/NodeResource?name=denied" -H "Authorization: $NON_ADMIN_ID_TOKEN"
+        run_curl_with_status PY_RBAC_DENY_STATUS "$API_PY_BASE/PythonResource?name=denied" -H "Authorization: $NON_ADMIN_ID_TOKEN"
+        run_curl_with_status NODE_RBAC_DENY_STATUS "$API_NODE_BASE/NodeResource?name=denied" -H "Authorization: $NON_ADMIN_ID_TOKEN"
+        assert_status "Python RBAC deny" "403" "$PY_RBAC_DENY_STATUS"
+        assert_status "Node RBAC deny" "403" "$NODE_RBAC_DENY_STATUS"
     else
         echo "Skipping RBAC deny test. Set NON_ADMIN_ID_TOKEN to run explicit non-admin checks."
+        skip_check "Python RBAC deny"
+        skip_check "Node RBAC deny"
     fi
 
     echo "WAF strict block test (XSS payload) - expected: 403 / WAF_BLOCK"
@@ -188,6 +235,8 @@ if [[ -n "${ID_TOKEN:-}" ]]; then
     if [[ "$PY_WAF_XSS_STATUS" != "403" || "$NODE_WAF_XSS_STATUS" != "403" ]]; then
         STRICT_WAF_RESULT="FAIL"
     fi
+    assert_status "Python WAF strict XSS" "403" "$PY_WAF_XSS_STATUS"
+    assert_status "Node WAF strict XSS" "403" "$NODE_WAF_XSS_STATUS"
 
     echo "Strict WAF summary: Python=$PY_WAF_XSS_STATUS Node=$NODE_WAF_XSS_STATUS Result=$STRICT_WAF_RESULT"
     {
@@ -212,7 +261,13 @@ if [[ -n "${ID_TOKEN:-}" ]]; then
         echo
     } >> "$REPORT_FILE"
 else
-    echo "Skipping auth-required API tests because ID_TOKEN is not set."
+    echo "Skipping auth-required API tests because no valid admin token is available."
+    skip_check "Python admin auth"
+    skip_check "Node admin auth"
+    skip_check "Python RBAC deny"
+    skip_check "Node RBAC deny"
+    skip_check "Python WAF strict XSS"
+    skip_check "Node WAF strict XSS"
 fi
 
 # DynamoDB Tables
@@ -257,3 +312,32 @@ else
 fi
 
 echo "Wrote summary document: $REPORT_FILE"
+
+{
+    echo
+    echo "## Script Exit Summary"
+    echo
+    echo "- Checks run: $TEST_CHECKS"
+    echo "- Failures: $TEST_FAILURES"
+    echo "- Skipped: $TEST_SKIPPED"
+    if [[ "$TEST_FAILURES" -eq 0 && "$TEST_SKIPPED" -eq 0 ]]; then
+        echo "- Result: PASS"
+    elif [[ "$TEST_FAILURES" -eq 0 ]]; then
+        echo "- Result: PASS_WITH_SKIPS"
+    else
+        echo "- Result: FAIL"
+    fi
+    echo
+} >> "$REPORT_FILE"
+
+if [[ "$TEST_FAILURES" -eq 0 ]]; then
+    if [[ "$TEST_SKIPPED" -eq 0 ]]; then
+        echo "RBAC_TEST_RESULT=PASS checks=$TEST_CHECKS failures=$TEST_FAILURES skipped=$TEST_SKIPPED"
+    else
+        echo "RBAC_TEST_RESULT=PASS_WITH_SKIPS checks=$TEST_CHECKS failures=$TEST_FAILURES skipped=$TEST_SKIPPED"
+    fi
+    exit 0
+else
+    echo "RBAC_TEST_RESULT=FAIL checks=$TEST_CHECKS failures=$TEST_FAILURES skipped=$TEST_SKIPPED"
+    exit 1
+fi

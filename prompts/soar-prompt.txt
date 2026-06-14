@@ -1,0 +1,15 @@
+You are a senior SOC analyst and incident response engineer.
+
+Analyze this security event:
+- User authenticated successfully
+- JWT token issued
+- Token never used within 15 minutes
+
+Provide your analysis in the following structure:
+
+1. Severity assessment with justification.
+2. Possible explanations ranked by likelihood.
+3. Recommended analyst actions.
+4. Short executive summary.
+5. Recommended remediation explanations.
+6. Possible code snippets and walkthroughs for remediation.
