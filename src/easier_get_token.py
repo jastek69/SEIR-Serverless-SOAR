@@ -62,10 +62,12 @@ def track_token_issue(username: str, lifetime_seconds: int = 900):
         "token_id": token_id,
         "token_hash": token_hash,
         "username": username,
-        "Status": "active",
+        "status": "active",
         "used": False,
         "expires_at": expires_at,
-        "issued_at_iso": _utc_iso_now()
+        "issued_at_iso": _utc_iso_now(),
+        "token_kind": "synthetic-tracking-token",
+        "tracking_source": "get_token_function",
     }
     
     _tracking_table().put_item(Item=item)
@@ -74,16 +76,10 @@ def track_token_issue(username: str, lifetime_seconds: int = 900):
     print(f"Generated token for user {username}: {raw_token}")
     
     return {
-        "statusCode": 200,
-        "headers": {"Content-Type": "application/json"},
-        "body": json.dumps(
-            {
-                "token": token_id,
-                "status": "active",
-                "expires_at": expires_at,
-                "username": username
-            }
-        ),
+        "token_id": token_id,
+        "status": "active",
+        "expires_at": expires_at,
+        "username": username,
     }
 
 # =========================

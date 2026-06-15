@@ -52,45 +52,45 @@ resource "aws_dynamodb_table" "dynamoDb_token_tracking" {
   }
 
   global_secondary_index {
-    name            = "user-expiry-index"
-    
+    name = "user-expiry-index"
+
     key_schema {
       attribute_name = "username"
-      key_type = "HASH"
-    }
-    
-    key_schema {
-      attribute_name = "expires_at"
-      key_type = "RANGE"
+      key_type       = "HASH"
     }
 
-    
+    key_schema {
+      attribute_name = "expires_at"
+      key_type       = "RANGE"
+    }
+
+
     projection_type = "ALL"
   }
 
   global_secondary_index {
-    name            = "status-expiry-index"
-    
+    name = "status-expiry-index"
+
     key_schema {
       attribute_name = "status"
-      key_type = "HASH"
+      key_type       = "HASH"
     }
 
 
     key_schema {
       attribute_name = "expires_at"
-      key_type = "RANGE"
+      key_type       = "RANGE"
     }
-    
+
     projection_type = "ALL"
   }
 
   global_secondary_index {
-    name            = "token-hash-index"
-    
+    name = "token-hash-index"
+
     key_schema {
       attribute_name = "token_hash"
-      key_type = "HASH"
+      key_type       = "HASH"
     }
 
     projection_type = "ALL"

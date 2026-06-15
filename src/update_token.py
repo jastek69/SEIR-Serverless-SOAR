@@ -51,12 +51,13 @@ def lambda_handler(event, context):
         new_status = "revoked" if action == "revoke" else "used"
         tracking.update_item(
             Key={"token_id": token_id},
-            UpdateExpression="SET #s = :s, used = :u, revoked_at_iso = :r",
+            UpdateExpression="SET #s = :s, used = :u, updated_at_iso = :t",
+            ConditionExpression="attribute_exists(token_id)",
             ExpressionAttributeNames={"#s": "status"},
             ExpressionAttributeValues={
                 ":s": new_status,
                 ":u": (action != "revoke"),
-                ":r": now_iso,
+                ":t": now_iso,
             },
         )
      # Set revocation to expire after 300S (5 minutes) to prevent indefinite growth of the revocation table

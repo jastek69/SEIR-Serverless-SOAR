@@ -90,6 +90,7 @@ python scripts/mfa_bootstrap.py \
   --username admin.test \
   --region us-west-2 \
   --token-var ID_TOKEN \
+  --track-token \
   --write-env Reports/admin_tokens.env
 
 source Reports/admin_tokens.env
@@ -100,6 +101,8 @@ Expected results:
 - If the user is in `MFA_SETUP`, the script prints a new MFA secret, you add it to your authenticator app, and then enter the current 6-digit code manually.
 - If the user is already in `SOFTWARE_TOKEN_MFA`, the script prompts for a current authenticator code and does not generate a new secret.
 - On success, it writes `Reports/admin_tokens.env`, and `source Reports/admin_tokens.env` loads the tokens.
+- `--track-token` registers the Cognito ID token's `jti`, hash, issue time, and expiry in DynamoDB without storing the raw JWT.
+- The exported `ID_TOKEN_TRACKING_ID` lets `rbac_test.sh` mark that same JWT record as used after authenticated API calls.
 
 ### Option 2: email the MFA secret for authenticator setup
 
@@ -127,6 +130,7 @@ py -3 scripts/mfa_bootstrap.py \
   --region us-west-2 \
   --client-id "$COGNITO_APP_CLIENT_ID" \
   --token-var ID_TOKEN \
+  --track-token \
   --write-env Reports/admin_tokens.env \
   --send-secret-to "your-recipient@example.com" \
   --ses-from "your-verified-sender@example.com"
@@ -165,6 +169,7 @@ py -3 scripts/mfa_bootstrap.py \
   --region us-west-2 \
   --client-id "$COGNITO_APP_CLIENT_ID" \
   --token-var NON_ADMIN_ID_TOKEN \
+  --track-token \
   --write-env Reports/non_admin_tokens.env \
   --auto-totp
 
@@ -279,8 +284,8 @@ echo "PY_LOG_GROUP=$PY_LOG_GROUP"
 echo "NODE_LOG_GROUP=$NODE_LOG_GROUP"
 
 export MSYS_NO_PATHCONV=1
-aws logs tail "$PY_LOG_GROUP" --region us-west-2 --since 15m
-aws logs tail "$NODE_LOG_GROUP" --region us-west-2 --since 15m
+aws logs tail "$PY_LOG_GROUP" --region us-west-2 --since 5m
+aws logs tail "$NODE_LOG_GROUP" --region us-west-2 --since 5m
 ```
 
 Note: `MSYS_NO_PATHCONV` disables Git Bash path conversion.
@@ -313,6 +318,15 @@ export PY_LOG_GROUP="$(terraform output -raw python_lambda_log_group)"
 export NODE_LOG_GROUP="$(terraform output -raw node_lambda_log_group)"
 export SCHEDULE_NAME="$(terraform output -raw unused_token_schedule_name)"
 export REPORTS_BUCKET="$(terraform output -raw incident_reports_bucket_name)"
+
+echo "$AWS_REGION"
+echo "$COGNITO_APP_CLIENT_ID"
+echo "$API_PY_BASE"
+echo "$API_NODE_BASE"
+echo "$PY_LOG_GROUP"
+echo "$NODE_LOG_GROUP"
+echo "$SCHEDULE_NAME"
+echo "$REPORTS_BUCKET"
 ```
 
 Then run:
@@ -425,9 +439,13 @@ cat unused-detector-response.json
 Expected results:
 
 - Scheduler exists and points to `unused_token_detector_function`.
-- Direct invoke returns a JSON body with `scanned`, `alerted`, and `threshold_minutes`.
+- Direct invoke returns a JSON body with `records_examined`, `matched`, `alerted`, and `threshold_minutes`.
 - `soar_generated` is `true` when a report is generated.
 - With `SOAR_GENERATE_ON_EMPTY=true` (current default), report generation occurs even when no stale unused tokens are found.
+
+`records_examined` is DynamoDB `ScannedCount`. `matched` is the number of active-unused
+tracking records returned by the detector filter. A zero `matched` value does not by
+itself indicate a detector or DynamoDB failure.
 
 What to look for in `unused-detector-response.json`:
 1. soar_generated should be true
@@ -637,3 +655,224 @@ What to look for in unused-detector-response.json:
 soar_generated should be true
 soar_key should be populated
 soar_evidence_key should be populated
+
+_______
+
+# GLOSSARY
+
+## GENERATE NEW TOKENS:
+In order to refresh and obtain new tokens for existing users use the commands using the appropriate user name and the enter the MFA code. 
+
+Tips: befure executing the CLI command be sure to have the password ready and the Authenticator app open for that particular user.
+
+For admin users:
+
+```
+export USERNAME="adminii.test"
+
+python scripts/mfa_bootstrap.py \
+  --username "$USERNAME" \
+  --region "$AWS_REGION" \
+  --client-id "$COGNITO_APP_CLIENT_ID" \
+  --token-var ID_TOKEN \
+  --write-env Reports/admin_tokens.env
+
+source Reports/admin_tokens.env
+```
+
+For test users:
+
+```
+export USERNAME="userii.test"
+
+python scripts/mfa_bootstrap.py \
+  --username "$USERNAME" \
+  --region "$AWS_REGION" \
+  --client-id "$COGNITO_APP_CLIENT_ID" \
+  --token-var NON_ADMIN_ID_TOKEN \
+  --write-env Reports/non_admin_tokens.env
+
+source Reports/non_admin_tokens.env
+```
+
+Verify:
+
+Group claims:
+```
+python -c "import os,json,base64; [print(n,json.loads(base64.urlsafe_b64decode((t:=os.environ[n]).split('.')[1]+'='*(-len(t.split('.')[1])%4))).get('cognito:groups')) for n in ['ID_TOKEN','NON_ADMIN_ID_TOKEN']]"
+```
+
+
+```
+echo "Admin ID token length: ${#ID_TOKEN}"
+echo "Non-admin ID token length: ${#NON_ADMIN_ID_TOKEN}"
+```
+
+
+# Verification Checks:
+
+## Account verification:
+confirm an account exists:
+
+```bash
+aws cognito-idp admin-get-user \
+  --user-pool-id "$USER_POOL_ID" \
+  --username userii.test \
+  --region "$AWS_REGION"
+```
+
+
+If necessary, add to a Group:
+```bash
+aws cognito-idp admin-add-user-to-group \
+  --user-pool-id "$USER_POOL_ID" \
+  --username userii.test \
+  --group-name user \
+  --region "$AWS_REGION"
+```
+
+
+## Group Checks:
+
+List All members of a specific group:
+```bash
+aws cognito-idp list-users-in-group \
+  --user-pool-id "$USER_POOL_ID" \
+  --group-name admin \
+  --region "$AWS_REGION"
+```
+
+Show only usernames:
+```bash
+aws cognito-idp list-users-in-group \
+  --user-pool-id "$USER_POOL_ID" \
+  --group-name admin \
+  --region "$AWS_REGION" \
+  --query 'Users[].Username' \
+  --output table
+```
+
+
+List every group:
+```bash
+aws cognito-idp list-groups \
+  --user-pool-id "$USER_POOL_ID" \
+  --region "$AWS_REGION" \
+  --query 'Groups[].GroupName' \
+  --output table
+```
+
+List members from both current groups:
+```bash
+for GROUP in admin user; do
+  echo "Group: $GROUP"
+  aws cognito-idp list-users-in-group \
+    --user-pool-id "$USER_POOL_ID" \
+    --group-name "$GROUP" \
+    --region "$AWS_REGION" \
+    --query 'Users[].Username' \
+    --output table
+done
+```
+
+
+## SUMMARY - User Creation:
+
+```bash
+aws cognito-idp admin-create-user \
+  --user-pool-id "$USER_POOL_ID" \
+  --username userii.test \
+  --user-attributes \
+    Name=email,Value=userii.test@example.com \
+    Name=email_verified,Value=true \
+  --message-action SUPPRESS \
+  --region "$AWS_REGION"
+
+aws cognito-idp admin-set-user-password \
+  --user-pool-id "$USER_POOL_ID" \
+  --username userii.test \
+  --password 'ChangeMe123!' \
+  --permanent \
+  --region "$AWS_REGION"
+
+aws cognito-idp admin-add-user-to-group \
+  --user-pool-id "$USER_POOL_ID" \
+  --username userii.test \
+  --group-name user \
+  --region "$AWS_REGION"
+  ```
+
+  Verify:
+  ```bash
+  aws cognito-idp admin-list-groups-for-user \
+  --user-pool-id "$USER_POOL_ID" \
+  --username userii.test \
+  --region "$AWS_REGION"
+```
+
+then run `mfa_bootstrap.py` afterwards to configure MFA and generate token. Be sure to change password
+
+
+## To Rerun tests after updating tokens
+After generating new tokens and users access is up to date:
+
+
+Verify the following:
+
+```bash
+echo "Admin token length: ${#ID_TOKEN}"
+echo "Non-admin token length: ${#NON_ADMIN_ID_TOKEN}"
+aws sts get-caller-identity
+```
+
+
+## run RBAC bash script:
+
+```bash
+source Reports/admin_tokens.env
+source Reports/non_admin_tokens.env
+
+export REGION="us-west-2"
+
+printf 'REGION=%s\n' "$REGION"
+printf 'ID_TOKEN length=%s\n' "${#ID_TOKEN}"
+printf 'NON_ADMIN_ID_TOKEN length=%s\n' "${#NON_ADMIN_ID_TOKEN}"
+
+terraform validate
+aws sts get-caller-identity
+
+bash ./scripts/rbac_test.sh
+```
+
+
+
+## Verify deployed settings for Lambda `get_unused_token_dectector`:
+```bash
+aws lambda get-function-configuration \
+  --function-name unused_token_detector_function \
+  --query 'Environment.Variables.{Threshold:UNUSED_TOKEN_THRESHOLD_MINUTES,MaxTokens:SOAR_MAX_OUTPUT_TOKENS,GenerateOnEmpty:SOAR_GENERATE_ON_EMPTY}' \
+  --region us-west-2
+```
+
+### Asynchronous invocation for `unused_token_detector_function` only:
+```bash
+aws lambda invoke \
+  --function-name unused_token_detector_function \
+  --invocation-type Event \
+  --payload '{"manual":true,"force_soar":true,"reason":"Operator-requested unused token review"}' \
+  --cli-binary-format raw-in-base64-out \
+  --region "$REGION" \
+  unused-detector-submit.json
+  ```
+
+
+## Reports Bucket
+
+```bash
+REPORTS_BUCKET="$(terraform output -raw incident_reports_bucket_name)"
+
+aws s3 sync \
+  "s3://$REPORTS_BUCKET/reports/" \
+  "Reports/" \
+  --region "$REGION"
+  ```

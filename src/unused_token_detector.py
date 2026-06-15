@@ -103,6 +103,9 @@ def _build_bedrock_prompt_text(template: str, context_payload: dict) -> str:
         "- Include practical remediation guidance with implementation detail where helpful.",
         "- Include code examples or pseudo-code when they materially improve remediation clarity.",
         "- Use concise executive language for summary sections and technical depth in detailed sections.",
+        "- Complete all six requested sections. Do not stop inside a sentence, list, or code block.",
+        "- Use only the supplied implementation facts. Do not invent SQL tables, SIEM indexes, health endpoints, or local log paths.",
+        "- Treat zero matched records as zero filter matches, not proof that DynamoDB or the detector failed.",
     ]
 
     if SOAR_TARGET_WORDS > 0:
@@ -127,9 +130,9 @@ def _build_bedrock_prompt_text(template: str, context_payload: dict) -> str:
     )
 
 
-def _bedrock_generate_summary(prompt_text: str) -> str:
+def _bedrock_generate_summary(prompt_text: str) -> Tuple[str, str]:
     if not BEDROCK_MODEL_ID:
-        return "Bedrock not configured."
+        return "Bedrock not configured.", "not_configured"
 
     if "anthropic." in BEDROCK_MODEL_ID:
         payload = {
@@ -152,22 +155,69 @@ def _bedrock_generate_summary(prompt_text: str) -> str:
         )
         body = response.get("body")
         if not body:
-            return "Bedrock response body missing."
+            return "Bedrock response body missing.", "missing_body"
         data = json.loads(body.read().decode("utf-8"))
         if isinstance(data, dict) and data.get("content"):
-            return data["content"][0].get("text", "")
+            return data["content"][0].get("text", ""), data.get("stop_reason", "unknown")
         if isinstance(data, dict) and data.get("outputs"):
-            return data["outputs"][0].get("text", "")
+            return data["outputs"][0].get("text", ""), data.get("stop_reason", "unknown")
         if isinstance(data, dict) and data.get("results"):
-            return data["results"][0].get("outputText", "")
-        return json.dumps(data)
+            return data["results"][0].get("outputText", ""), data.get("stop_reason", "unknown")
+        return json.dumps(data), data.get("stop_reason", "unknown")
     except Exception as exc:
-        return f"Bedrock invocation failed: {exc}"
+        return f"Bedrock invocation failed: {exc}", "error"
+
+
+def _ensure_complete_analysis(summary: str, stop_reason: str) -> Tuple[str, list[str]]:
+    required_sections = {
+        "4. Short Executive Summary": (
+            "No stale active-unused tracking records matched this detector run. "
+            "This result is not evidence that a Cognito JWT was issued and left unused, "
+            "unless the record was explicitly registered from the Cognito bootstrap flow. "
+            "Cognito clients outside that flow are not automatically linked to tracking."
+        ),
+        "5. Recommended Remediation Explanations": (
+            "- Keep the DynamoDB attribute name consistently lowercase as `status`.\n"
+            "- Track actual Cognito session identifiers through an explicit registration and usage-update flow.\n"
+            "- Report DynamoDB `ScannedCount` separately from matching record count.\n"
+            "- Generate incident reports only from evidence supplied to the model."
+        ),
+        "6. Possible Code Snippets and Walkthroughs for Remediation": (
+            "```python\n"
+            "response = tracking.scan(**scan_kwargs)\n"
+            "records_examined += response.get(\"ScannedCount\", 0)\n"
+            "matching_records += response.get(\"Count\", 0)\n"
+            "```\n\n"
+            "Register a stable Cognito session identifier at issuance, then update that same "
+            "record when an authorized API request succeeds."
+        ),
+    }
+
+    completed = summary.rstrip()
+    repairs = []
+    if completed.count("```") % 2:
+        completed += "\n```"
+        repairs.append("closed_unterminated_code_fence")
+
+    force_recovery = stop_reason in {"max_tokens", "length"}
+    if force_recovery:
+        completed += (
+            "\n\n> Model output reached its configured limit. "
+            "The following deterministic recovery sections complete the report."
+        )
+        repairs.append("recovered_after_output_limit")
+
+    for heading, fallback_text in required_sections.items():
+        if force_recovery or heading.lower() not in completed.lower():
+            completed += f"\n\n## {heading}\n\n{fallback_text}"
+            repairs.append(f"added_{heading.split('.', 1)[0]}")
+
+    return completed, repairs
 
 
 def _build_soar_markdown(report: dict, findings: list[dict], summary: str) -> str:
     finding_lines = [
-        f"- {item['token_id']} | user={item['username']} | age_minutes={item['age_minutes']} | issued_at={item['issued_at_iso']}"
+        f"- {item['token_id']} | user={item['username']} | kind={item['token_kind']} | age_minutes={item['age_minutes']} | issued_at={item['issued_at_iso']}"
         for item in findings[:25]
     ]
     if not finding_lines:
@@ -180,7 +230,8 @@ def _build_soar_markdown(report: dict, findings: list[dict], summary: str) -> st
             f"- Trigger: {report['trigger_source']}",
             f"- Generated: {report['generated_at']}",
             f"- Threshold Minutes: {report['threshold_minutes']}",
-            f"- Records Scanned: {report['scanned']}",
+            f"- DynamoDB Records Examined: {report['records_examined']}",
+            f"- Active-Unused Records Matched: {report['matched']}",
             f"- Alerts Published: {report['alerted']}",
             f"- Reason: {report['reason']}",
             f"- Prompt Source: {report.get('soar_prompt_source', 'unknown')}",
@@ -258,17 +309,21 @@ def lambda_handler(event, context):
     epoch_now = int(now.timestamp())
     threshold = now - timedelta(minutes=UNUSED_TOKEN_THRESHOLD_MINUTES)
     scan_kwargs = {
-        "FilterExpression": Attr("used").eq(False) & Attr("status").eq("active"),
+        # Accept legacy records written with uppercase Status while they age out.
+        "FilterExpression": Attr("used").eq(False)
+        & (Attr("status").eq("active") | Attr("Status").eq("active")),
     }
     findings = []
 
-    scanned = 0
+    records_examined = 0
+    matched = 0
     alerted = 0
 
     while True:
         response = tracking.scan(**scan_kwargs)
         items = response.get("Items", [])
-        scanned += len(items)
+        records_examined += response.get("ScannedCount", 0)
+        matched += response.get("Count", len(items))
 
         for item in items:
             issued_raw = item.get("issued_at_iso")
@@ -287,6 +342,7 @@ def lambda_handler(event, context):
                     "issued_at_iso": issued_raw,
                     "status": item.get("status", "active"),
                     "used": item.get("used", False),
+                    "token_kind": item.get("token_kind", "legacy-or-unknown"),
                     "age_minutes": age_minutes,
                 }
             )
@@ -311,7 +367,8 @@ def lambda_handler(event, context):
             "incident_id": incident_id,
             "trigger_source": trigger_source,
             "threshold_minutes": UNUSED_TOKEN_THRESHOLD_MINUTES,
-            "scanned": scanned,
+            "records_examined": records_examined,
+            "matched": matched,
             "alerted": alerted,
             "reason": reason,
             "findings": findings,
@@ -322,6 +379,7 @@ def lambda_handler(event, context):
                 "username": item.get("username", "unknown-user"),
                 "issued_at_iso": item.get("issued_at_iso"),
                 "age_minutes": item.get("age_minutes", 0),
+                "token_kind": item.get("token_kind", "legacy-or-unknown"),
             }
             for item in findings[:SOAR_MAX_FINDINGS_IN_PROMPT]
         ]
@@ -330,18 +388,31 @@ def lambda_handler(event, context):
             "trigger_source": trigger_source,
             "reason": reason,
             "threshold_minutes": UNUSED_TOKEN_THRESHOLD_MINUTES,
-            "scanned": scanned,
+            "records_examined": records_examined,
+            "matched": matched,
             "alerted": alerted,
             "findings_total": len(findings),
             "findings_sample": sampled_findings,
+            "implementation_facts": {
+                "token_store": "Amazon DynamoDB table token-tracking",
+                "detector_logs": "CloudWatch Logs group /aws/lambda/unused_token_detector_function",
+                "tracking_record_kinds": "Synthetic markers plus explicitly registered Cognito ID tokens from mfa_bootstrap.py --track-token",
+                "cognito_jwt_linkage": "The bootstrap/test flow links Cognito jti to usage when --track-token is used; other Cognito clients are not automatically registered",
+                "status_migration": "Detector accepts lowercase status and legacy uppercase Status",
+            },
         }
         prompt_template, prompt_source = _load_soar_prompt_template()
         prompt_text = _build_bedrock_prompt_text(prompt_template, prompt_context)
-        bedrock_summary = _bedrock_generate_summary(prompt_text)
+        bedrock_summary, bedrock_stop_reason = _bedrock_generate_summary(prompt_text)
+        bedrock_summary, completion_repairs = _ensure_complete_analysis(
+            bedrock_summary, bedrock_stop_reason
+        )
         report["bedrock_summary"] = bedrock_summary
         report["soar_prompt_param_name"] = SOAR_PROMPT_PARAM_NAME
         report["soar_prompt_source"] = prompt_source
         report["bedrock_model_id"] = BEDROCK_MODEL_ID
+        report["bedrock_stop_reason"] = bedrock_stop_reason
+        report["completion_repairs"] = completion_repairs
         soar_markdown = _build_soar_markdown(report, findings, bedrock_summary)
         soar_key, evidence_key = _upload_soar_artifacts(report, soar_markdown)
 
@@ -351,7 +422,8 @@ def lambda_handler(event, context):
             {
                 "message": "Unused token scan completed",
                 "trigger_source": trigger_source,
-                "scanned": scanned,
+                "records_examined": records_examined,
+                "matched": matched,
                 "alerted": alerted,
                 "soar_generated": bool(soar_key),
                 "soar_key": soar_key,

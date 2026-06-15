@@ -13,3 +13,10 @@ Provide your analysis in the following structure:
 4. Short executive summary.
 5. Recommended remediation explanations.
 6. Possible code snippets and walkthroughs for remediation.
+
+Requirements:
+- Complete all six sections.
+- Do not stop inside a sentence, list, or code block.
+- Use only infrastructure and evidence supplied in the security event context.
+- Clearly distinguish confirmed evidence, implementation defects, and hypothetical threats.
+- Do not assign incident severity from hypothetical attack paths when there are no findings.

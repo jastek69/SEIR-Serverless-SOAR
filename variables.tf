@@ -43,6 +43,14 @@ variable "force_destroy" {
 }
 
 
+# API Gateway logging variables
+# Set to False for Prod to avoid potential performance impact and cost of detailed data trace logging; can be enabled for Dev and Staging for troubleshooting.
+variable "api_data_trace_enabled" {
+  default     = true
+  description = "Whether to enable data trace logging for API Gateway"
+  type        = bool
+}
+
 # Legacy variable retained for compatibility; providers now use var.region.
 variable "region_waf_cf" {
   # default     = "us-east-1"
@@ -61,7 +69,7 @@ variable "translation_kms_key_arn" {
 variable "common_tags" {
   description = "Common tags to apply to all resources"
   type        = map(string)
-  default     = {
+  default = {
     Project     = "lambda-rbac-bedrock",
     Environment = "dev",
     Owner       = "taaops"

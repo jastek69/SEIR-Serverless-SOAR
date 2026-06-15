@@ -24,7 +24,9 @@ def _parse_issued_at(value: str) -> datetime:
 def _delete_stale_unused_tokens(cutoff: datetime) -> int:
     deleted_count = 0
     scan_kwargs = {
-        "FilterExpression": Attr("used").eq(False) & Attr("status").eq("active"),
+        # Accept legacy records written with uppercase Status while they age out.
+        "FilterExpression": Attr("used").eq(False)
+        & (Attr("status").eq("active") | Attr("Status").eq("active")),
     }
 
     while True:

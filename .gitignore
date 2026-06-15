@@ -36,6 +36,7 @@ invalid_response.json
 .secrets.json
 .env.json
 
+*.tfplan
 
 # Ignore override files as they are usually used to override resources locally and so
 # are not checked in
@@ -65,4 +66,5 @@ terraform.rc
 *.pem
 *.pub
 *.ppk
+*.gitattributes
 

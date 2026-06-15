@@ -50,7 +50,7 @@ resource "aws_wafv2_web_acl" "taaops_cf_waf01" {
   # This helps mitigate abusive traffic patterns.
   rule {
     name     = "RateLimitRule"
-    priority = 2
+    priority = 3
 
     dynamic "action" {
       for_each = [var.waf_rate_limit_action]
@@ -78,6 +78,30 @@ resource "aws_wafv2_web_acl" "taaops_cf_waf01" {
     visibility_config {
       cloudwatch_metrics_enabled = true
       metric_name                = "${var.project_name}-cf-waf-rate-limit"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  # AWS Managed Rules SQLi Rule Set to detect and mitigate SQL injection attacks.
+  # This rule set includes pre-configured rules that analyze incoming requests for common SQL injection patterns and behaviors.
+  rule {
+    name     = "AWSManagedRulesSQLiRuleSet"
+    priority = 2
+
+    override_action {
+      none {}
+    }
+
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesSQLiRuleSet"
+        vendor_name = "AWS"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${var.project_name}-cf-waf-sqli"
       sampled_requests_enabled   = true
     }
   }

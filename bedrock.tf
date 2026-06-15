@@ -26,7 +26,7 @@ data "archive_file" "taaops_ir_lambda_zip" {
 
 # Explanation: The incident reports archive—Galactus's digital filing cabinet for postmortem artifacts.
 resource "aws_s3_bucket" "taaops_ir_reports_bucket" {
-  bucket = "${var.project_name}-taaops-incident-reports-${data.aws_caller_identity.taaops_self01.account_id}"
+  bucket        = "${var.project_name}-taaops-incident-reports-${data.aws_caller_identity.taaops_self01.account_id}"
   force_destroy = var.force_destroy
 
   tags = merge(var.common_tags, {
@@ -241,15 +241,15 @@ resource "aws_lambda_function" "taaops_ir_lambda" {
 
   environment {
     variables = {
-      REPORT_BUCKET       = aws_s3_bucket.taaops_ir_reports_bucket.bucket          # S3 for JSON + Markdown reports
-      TRANSLATION_BUCKET  = module.taaops_translation.input_bucket_name            # Translation integration
-      APP_LOG_GROUP       = "/aws/ec2/rdsapp"                                     # App log group (CloudWatch Agent default)
-      WAF_LOG_GROUP       = "aws-waf-logs-${var.project_name}-taaops-regional-waf" # Regional WAF log group
+      REPORT_BUCKET      = aws_s3_bucket.taaops_ir_reports_bucket.bucket          # S3 for JSON + Markdown reports
+      TRANSLATION_BUCKET = module.taaops_translation.input_bucket_name            # Translation integration
+      APP_LOG_GROUP      = "/aws/ec2/rdsapp"                                      # App log group (CloudWatch Agent default)
+      WAF_LOG_GROUP      = "aws-waf-logs-${var.project_name}-taaops-regional-waf" # Regional WAF log group
       # SECRET_ID         = "${var.project_name}/rds/mysql"                       # Reserved for a future database-backed configuration
-      SSM_PARAM_PATH      = "/lab/db/"                                            # Parameter Store path for DB config
-      BEDROCK_MODEL_ID    = "us.anthropic.claude-sonnet-4-6"                     # Bedrock model ID (optional)
-      SNS_TOPIC_ARN       = aws_sns_topic.taaops_ir_reports_topic.arn              # SNS topic for "Report Ready"
-      AUTOMATION_DOC_NAME = "${var.project_name}-taaops-incident-report"           # SSM automation document
+      SSM_PARAM_PATH      = "/lab/db/"                                   # Parameter Store path for DB config
+      BEDROCK_MODEL_ID    = "us.anthropic.claude-sonnet-4-6"             # Bedrock model ID (optional)
+      SNS_TOPIC_ARN       = aws_sns_topic.taaops_ir_reports_topic.arn    # SNS topic for "Report Ready"
+      AUTOMATION_DOC_NAME = "${var.project_name}-taaops-incident-report" # SSM automation document
     }
   }
 

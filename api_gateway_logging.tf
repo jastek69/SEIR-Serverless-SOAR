@@ -2,30 +2,30 @@
 
 locals {
   api_gateway_access_log_format = jsonencode({
-    requestId          = "$context.requestId"
-    extendedRequestId  = "$context.extendedRequestId"
-    apiId              = "$context.apiId"
-    stage              = "$context.stage"
-    requestTime        = "$context.requestTime"
-    requestTimeEpoch   = "$context.requestTimeEpoch"
-    sourceIp           = "$context.identity.sourceIp"
-    userAgent          = "$context.identity.userAgent"
-    httpMethod         = "$context.httpMethod"
-    resourcePath       = "$context.resourcePath"
-    path               = "$context.path"
-    status             = "$context.status"
-    protocol           = "$context.protocol"
-    responseLength     = "$context.responseLength"
-    integrationStatus  = "$context.integration.status"
-    integrationLatency = "$context.integration.latency"
-    errorMessage       = "$context.error.message"
-    wafStatus          = "$context.waf.status"
-    wafLatency         = "$context.waf.latency"
-    wafResponseCode    = "$context.wafResponseCode"
-    webAclArn          = "$context.webaclArn"
-    dynamoDBTableName   = "$context.authorizer.claims.dynamodbTableName"
-    dynamoDBOperation   = "$context.authorizer.claims.dynamodbOperation"
-    dynamoDBItemId      = "$context.authorizer.claims.dynamodbItemId"
+    requestId            = "$context.requestId"
+    extendedRequestId    = "$context.extendedRequestId"
+    apiId                = "$context.apiId"
+    stage                = "$context.stage"
+    requestTime          = "$context.requestTime"
+    requestTimeEpoch     = "$context.requestTimeEpoch"
+    sourceIp             = "$context.identity.sourceIp"
+    userAgent            = "$context.identity.userAgent"
+    httpMethod           = "$context.httpMethod"
+    resourcePath         = "$context.resourcePath"
+    path                 = "$context.path"
+    status               = "$context.status"
+    protocol             = "$context.protocol"
+    responseLength       = "$context.responseLength"
+    integrationStatus    = "$context.integration.status"
+    integrationLatency   = "$context.integration.latency"
+    errorMessage         = "$context.error.message"
+    wafStatus            = "$context.waf.status"
+    wafLatency           = "$context.waf.latency"
+    wafResponseCode      = "$context.wafResponseCode"
+    webAclArn            = "$context.webaclArn"
+    dynamoDBTableName    = "$context.authorizer.claims.dynamodbTableName"
+    dynamoDBOperation    = "$context.authorizer.claims.dynamodbOperation"
+    dynamoDBItemId       = "$context.authorizer.claims.dynamodbItemId"
     dynamoDBErrorMessage = "$context.authorizer.claims.dynamodbErrorMessage"
   })
 }
@@ -49,9 +49,9 @@ resource "aws_cloudwatch_log_group" "DynamoDB_LogGroup" {
 
 # Create a Log Policy to allow Cloudwatch to Create log streams and put logs
 resource "aws_cloudwatch_log_resource_policy" "DynamoDB_CloudWatchLogPolicy" {
-  policy_name     = "Terraform-DynamoDB-CloudWatchLogPolicy-${data.aws_caller_identity.current.account_id}"
-  
-policy_document = <<EOF
+  policy_name = "Terraform-DynamoDB-CloudWatchLogPolicy-${data.aws_caller_identity.current.account_id}"
+
+  policy_document = <<EOF
 {
   "Version": "2012-10-17",
   "Id": "CWLogsPolicy",
@@ -82,36 +82,13 @@ EOF
 
 
 
-# Configure API Gateway to push all logs to CloudWatch Logs
-resource "aws_api_gateway_method_settings" "python_api_gateway_method_settings" {
-  rest_api_id = aws_api_gateway_rest_api.PythonAPI.id
-  stage_name  = aws_api_gateway_stage.PythonStage.stage_name
-  method_path = "*/*"
-
-  settings {
-    # Enable CloudWatch logging and metrics
-    metrics_enabled = true
-    logging_level   = "INFO"
-  }
-}
+# API Gateway Method Settings to enable access logging for all methods in the stage - see api.tf for method settings with logging enabled for both APIs
+# resource "aws_api_gateway_method_settings" "python_api_gateway_method_settings" - see api.tf for method settings with logging enabled for both APIs
+# resource "aws_api_gateway_method_settings" "node_api_gateway_method_settings" - see api.tf for method settings with logging enabled for both APIs
 
 
 
-# Configure API Gateway to push all logs to CloudWatch Logs
-resource "aws_api_gateway_method_settings" "node_api_gateway_method_settings" {
-  rest_api_id = aws_api_gateway_rest_api.NodeAPI.id
-  stage_name  = aws_api_gateway_stage.NodeStage.stage_name
-  method_path = "*/*"
-
-  settings {
-    # Enable CloudWatch logging and metrics
-    metrics_enabled = true
-    logging_level   = "INFO"
-  }
-}
-
-
-/*
+/* Template for API Gateway stage with logging enabled - see api.tf for actual stage definitions with logging enabled
 
 # Create a new API Gateway stage with logging enabled
 resource "aws_api_gateway_stage" "MyApiGatewayStage" {

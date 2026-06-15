@@ -29,7 +29,7 @@ resource "aws_api_gateway_authorizer" "python_cognito" {
   name        = "python-cognito-authorizer"
   rest_api_id = aws_api_gateway_rest_api.PythonAPI.id
 
-  type          = "COGNITO_USER_POOLS"
+  type = "COGNITO_USER_POOLS"
   provider_arns = [
     local.cognito_user_pool_arn
   ]
@@ -41,7 +41,7 @@ resource "aws_api_gateway_authorizer" "node_cognito" {
   name        = "node-cognito-authorizer"
   rest_api_id = aws_api_gateway_rest_api.NodeAPI.id
 
-  type          = "COGNITO_USER_POOLS"
+  type = "COGNITO_USER_POOLS"
   provider_arns = [
     local.cognito_user_pool_arn
   ]
@@ -149,6 +149,9 @@ resource "aws_api_gateway_method_settings" "PythonStageThrottle" {
   method_path = "*/*"
 
   settings {
+    logging_level          = "INFO"
+    metrics_enabled        = true
+    data_trace_enabled     = var.api_data_trace_enabled
     throttling_rate_limit  = var.api_throttle_rate_limit
     throttling_burst_limit = var.api_throttle_burst_limit
   }
@@ -257,11 +260,13 @@ resource "aws_api_gateway_method_settings" "NodeStageThrottle" {
   method_path = "*/*"
 
   settings {
+    logging_level          = "INFO"
+    metrics_enabled        = true
+    data_trace_enabled     = var.api_data_trace_enabled
     throttling_rate_limit  = var.api_throttle_rate_limit
     throttling_burst_limit = var.api_throttle_burst_limit
   }
 }
-
 
 
 # API Gateway Roles
@@ -329,8 +334,8 @@ resource "aws_iam_policy" "api_gateway_dynamodb_put_query_policy" {
         "dynamodb:PutItem",
         "dynamodb:Query"
       ]
-      Resource = [ "${aws_dynamodb_table.dynamoDb_token_tracking.arn}",
-      "${aws_dynamodb_table.dynamoDb_token_tracking.arn}/index/*" ]
+      Resource = ["${aws_dynamodb_table.dynamoDb_token_tracking.arn}",
+      "${aws_dynamodb_table.dynamoDb_token_tracking.arn}/index/*"]
     }]
   })
 
@@ -612,4 +617,4 @@ resource "aws_api_gateway_deployment" "MyApiGatewayDeployment" {
   rest_api_id = aws_api_gateway_rest_api.MyApiGatewayRestApi.id
 }
 */
- 
+

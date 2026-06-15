@@ -76,11 +76,56 @@ def send_secret_email(secret_code, username, to_email, from_email, region):
     )
 
 # Writes an env file with export lines for the ID token, access token, and refresh token (if present).
-def write_env_file(path, token_var_name, id_token, access_token, refresh_token):
+def decode_jwt_claims(token):
+    parts = token.split(".")
+    if len(parts) != 3:
+        raise RuntimeError("Cognito ID token is not a valid JWT")
+    payload = parts[1] + ("=" * (-len(parts[1]) % 4))
+    return json.loads(base64.urlsafe_b64decode(payload.encode("ascii")).decode("utf-8"))
+
+
+def register_token_tracking(id_token, username, region):
+    claims = decode_jwt_claims(id_token)
+    token_id = claims.get("jti") or claims.get("origin_jti")
+    issued_at = int(claims.get("iat", 0))
+    expires_at = int(claims.get("exp", 0))
+    if not token_id or not issued_at or not expires_at:
+        raise RuntimeError("Cognito ID token is missing jti/origin_jti, iat, or exp claims")
+
+    issued_at_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(issued_at))
+    item = {
+        "token_id": {"S": token_id},
+        "token_hash": {"S": hashlib.sha256(id_token.encode("utf-8")).hexdigest()},
+        "username": {"S": username},
+        "status": {"S": "active"},
+        "used": {"BOOL": False},
+        "expires_at": {"N": str(expires_at)},
+        "issued_at_iso": {"S": issued_at_iso},
+        "token_kind": {"S": "cognito-id-token"},
+        "tracking_source": {"S": "mfa-bootstrap"},
+    }
+    run_cmd(
+        [
+            "aws",
+            "dynamodb",
+            "put-item",
+            "--table-name",
+            "token-tracking",
+            "--item",
+            json.dumps(item, separators=(",", ":")),
+            "--region",
+            region,
+        ]
+    )
+    return token_id
+
+
+def write_env_file(path, token_var_name, id_token, access_token, refresh_token, tracking_id=""):
     content = (
         f"export {token_var_name}=\"{id_token}\"\n"
         f"export ACCESS_TOKEN=\"{access_token}\"\n"
         f"export REFRESH_TOKEN=\"{refresh_token}\"\n"
+        f"export {token_var_name}_TRACKING_ID=\"{tracking_id}\"\n"
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
@@ -91,9 +136,21 @@ def emit_tokens(args, id_token, access_token, refresh_token):
     print(f"{args.token_var} length: {len(id_token)}")
     print(f"ACCESS_TOKEN length: {len(access_token)}")
 
+    tracking_id = ""
+    if args.track_token:
+        tracking_id = register_token_tracking(id_token, args.username, args.region)
+        print(f"Registered Cognito JWT tracking ID: {tracking_id}")
+
     if args.write_env:
         env_path = Path(args.write_env)
-        write_env_file(env_path, args.token_var, id_token, access_token, refresh_token)
+        write_env_file(
+            env_path,
+            args.token_var,
+            id_token,
+            access_token,
+            refresh_token,
+            tracking_id,
+        )
         print(f"Wrote export file: {env_path}")
         print(f"Run: source {env_path}")
     else:
@@ -102,6 +159,8 @@ def emit_tokens(args, id_token, access_token, refresh_token):
         print(f"export ACCESS_TOKEN=\"{access_token}\"")
         if refresh_token:
             print(f"export REFRESH_TOKEN=\"{refresh_token}\"")
+        if tracking_id:
+            print(f"export {args.token_var}_TRACKING_ID=\"{tracking_id}\"")
 
 
 def generate_totp(secret_code, for_time=None, interval=30, digits=6):
@@ -132,6 +191,7 @@ def main():
     parser.add_argument("--send-secret-to", default="", help="Optional email address to send MFA secret via SES")
     parser.add_argument("--ses-from", default="", help="SES from address. Defaults to --send-secret-to when omitted")
     parser.add_argument("--auto-totp", action="store_true", help="Generate TOTP automatically during MFA_SETUP using the Cognito secret")
+    parser.add_argument("--track-token", action="store_true", help="Register the Cognito ID token metadata in DynamoDB token-tracking")
     args = parser.parse_args()
 
     try:

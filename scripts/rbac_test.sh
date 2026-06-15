@@ -15,6 +15,8 @@ export PY_LOG_GROUP="$(terraform output -raw python_lambda_log_group)"
 export NODE_LOG_GROUP="$(terraform output -raw node_lambda_log_group)"
 export SCHEDULE_NAME="$(terraform output -raw unused_token_schedule_name)"
 
+SOAR_CLI_READ_TIMEOUT="${SOAR_CLI_READ_TIMEOUT:-240}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -215,49 +217,80 @@ if [[ -n "${VALID_ID_TOKEN:-}" ]]; then
     assert_status "Python admin auth" "200" "$PY_ADMIN_STATUS"
     assert_status "Node admin auth" "200" "$NODE_ADMIN_STATUS"
 
+    if [[ -n "${ID_TOKEN_TRACKING_ID:-}" ]]; then
+        echo "Marking the registered admin Cognito JWT as used..."
+        aws lambda invoke \
+            --function-name "update_token_function" \
+            --payload "{\"body\":\"{\\\"token_id\\\":\\\"$ID_TOKEN_TRACKING_ID\\\",\\\"action\\\":\\\"used\\\"}\"}" \
+            --region "$REGION" \
+            --cli-binary-format raw-in-base64-out \
+            update-admin-token-response.json
+    fi
+
     if [[ -n "$NON_ADMIN_ID_TOKEN" ]]; then
         echo "RBAC deny test with non-admin token (expected: 403)"
         run_curl_with_status PY_RBAC_DENY_STATUS "$API_PY_BASE/PythonResource?name=denied" -H "Authorization: $NON_ADMIN_ID_TOKEN"
         run_curl_with_status NODE_RBAC_DENY_STATUS "$API_NODE_BASE/NodeResource?name=denied" -H "Authorization: $NON_ADMIN_ID_TOKEN"
         assert_status "Python RBAC deny" "403" "$PY_RBAC_DENY_STATUS"
         assert_status "Node RBAC deny" "403" "$NODE_RBAC_DENY_STATUS"
+        if [[ -n "${NON_ADMIN_ID_TOKEN_TRACKING_ID:-}" ]]; then
+            echo "Marking the registered non-admin Cognito JWT as used..."
+            aws lambda invoke \
+                --function-name "update_token_function" \
+                --payload "{\"body\":\"{\\\"token_id\\\":\\\"$NON_ADMIN_ID_TOKEN_TRACKING_ID\\\",\\\"action\\\":\\\"used\\\"}\"}" \
+                --region "$REGION" \
+                --cli-binary-format raw-in-base64-out \
+                update-non-admin-token-response.json
+        fi
     else
         echo "Skipping RBAC deny test. Set NON_ADMIN_ID_TOKEN to run explicit non-admin checks."
         skip_check "Python RBAC deny"
         skip_check "Node RBAC deny"
     fi
 
-    echo "WAF strict block test (XSS payload) - expected: 403 / WAF_BLOCK"
-    run_curl_with_status PY_WAF_XSS_STATUS "$API_PY_BASE/PythonResource?name=%3Cscript%3Ealert(1)%3C%2Fscript%3E" -H "Authorization: $VALID_ID_TOKEN"
-    run_curl_with_status NODE_WAF_XSS_STATUS "$API_NODE_BASE/NodeResource?name=%3Cscript%3Ealert(1)%3C%2Fscript%3E" -H "Authorization: $VALID_ID_TOKEN"
+    echo "WAF strict XSS block test - expected: 403 / WAF_BLOCK"
+    run_curl_with_status PY_WAF_XSS_STATUS \
+        "$API_PY_BASE/PythonResource?name=%3Cscript%3Ealert(1)%3C%2Fscript%3E" \
+        -H "Authorization: $VALID_ID_TOKEN"
 
-    STRICT_WAF_RESULT="PASS"
-    if [[ "$PY_WAF_XSS_STATUS" != "403" || "$NODE_WAF_XSS_STATUS" != "403" ]]; then
-        STRICT_WAF_RESULT="FAIL"
-    fi
+    run_curl_with_status NODE_WAF_XSS_STATUS \
+        "$API_NODE_BASE/NodeResource?name=%3Cscript%3Ealert(1)%3C%2Fscript%3E" \
+        -H "Authorization: $VALID_ID_TOKEN"
+
     assert_status "Python WAF strict XSS" "403" "$PY_WAF_XSS_STATUS"
     assert_status "Node WAF strict XSS" "403" "$NODE_WAF_XSS_STATUS"
 
-    echo "Strict WAF summary: Python=$PY_WAF_XSS_STATUS Node=$NODE_WAF_XSS_STATUS Result=$STRICT_WAF_RESULT"
+    echo "WAF strict SQLi block test - expected: 403 / WAF_BLOCK"
+    run_curl_with_status PY_WAF_SQLI_STATUS \
+        "$API_PY_BASE/PythonResource?name=taaops%27%20OR%20%271%27%3D%271" \
+        -H "Authorization: $VALID_ID_TOKEN"
+
+    run_curl_with_status NODE_WAF_SQLI_STATUS \
+        "$API_NODE_BASE/NodeResource?name=taaops%27%20OR%20%271%27%3D%271" \
+        -H "Authorization: $VALID_ID_TOKEN"
+
+    assert_status "Python WAF SQLi" "403" "$PY_WAF_SQLI_STATUS"
+    assert_status "Node WAF SQLi" "403" "$NODE_WAF_SQLI_STATUS"
+
+    STRICT_WAF_RESULT="PASS"
+
+    if [[ "$PY_WAF_XSS_STATUS" != "403" ||
+        "$NODE_WAF_XSS_STATUS" != "403" ||
+        "$PY_WAF_SQLI_STATUS" != "403" ||
+        "$NODE_WAF_SQLI_STATUS" != "403" ]]; then
+        STRICT_WAF_RESULT="FAIL"
+    fi
+
+    echo "Strict WAF summary: XSS Python=$PY_WAF_XSS_STATUS Node=$NODE_WAF_XSS_STATUS; SQLi Python=$PY_WAF_SQLI_STATUS Node=$NODE_WAF_SQLI_STATUS; Result=$STRICT_WAF_RESULT"
+
     {
         echo "## WAF Strict Block Result"
         echo
         echo "- Python XSS status: $PY_WAF_XSS_STATUS"
         echo "- Node XSS status: $NODE_WAF_XSS_STATUS"
+        echo "- Python SQLi status: $PY_WAF_SQLI_STATUS"
+        echo "- Node SQLi status: $NODE_WAF_SQLI_STATUS"
         echo "- Result: $STRICT_WAF_RESULT"
-        echo
-    } >> "$REPORT_FILE"
-
-    echo "WAF informational SQLi-style test - expected: 403 or 200 depending on managed rules"
-    run_curl_with_status PY_WAF_SQLI_STATUS "$API_PY_BASE/PythonResource?name=taaops%27%20OR%20%271%27%3D%271" -H "Authorization: $VALID_ID_TOKEN"
-    run_curl_with_status NODE_WAF_SQLI_STATUS "$API_NODE_BASE/NodeResource?name=taaops%27%20OR%20%271%27%3D%271" -H "Authorization: $VALID_ID_TOKEN"
-
-    {
-        echo "## WAF Informational SQLi-style Result"
-        echo
-        echo "- Python SQLi-style status: $PY_WAF_SQLI_STATUS"
-        echo "- Node SQLi-style status: $NODE_WAF_SQLI_STATUS"
-        echo "- Interpretation: 403 indicates blocked; 200 indicates allowed by current managed rules."
         echo
     } >> "$REPORT_FILE"
 else
@@ -268,6 +301,8 @@ else
     skip_check "Node RBAC deny"
     skip_check "Python WAF strict XSS"
     skip_check "Node WAF strict XSS"
+    skip_check "Python WAF SQLi"
+    skip_check "Node WAF SQLi"
 fi
 
 # DynamoDB Tables

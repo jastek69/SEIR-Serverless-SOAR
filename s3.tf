@@ -3,11 +3,11 @@
 
 
 resource "aws_s3_bucket" "immutable_audit_bucket" {
-  bucket = "${var.project}-immutable-record-${random_string.random.result}"
-  force_destroy = false
-  object_lock_enabled = false  # Set to true if you want to enable object lock
-  
- 
+  bucket              = "${var.project}-immutable-record-${random_string.random.result}"
+  force_destroy       = false
+  object_lock_enabled = false # Set to true if you want to enable object lock
+
+
 }
 
 
@@ -21,7 +21,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "immutable_audit_b
   }
 }
 
- 
+
 resource "random_string" "random" {
   length  = 6
   special = false
@@ -38,7 +38,7 @@ resource "aws_s3_bucket_cors_configuration" "cors_configuration" {
     max_age_seconds = 3000
   }
 }
- 
+
 
 
 resource "aws_s3_bucket_logging" "logging" {
@@ -75,7 +75,7 @@ resource "aws_lambda_permission" "allow_bucket" {
 
 # Hash
 resource "aws_apigatewayv2_api" "rest_api" {
-  name = "${var.project}-api"
+  name          = "${var.project}-api"
   protocol_type = "HTTP"
 }
 
@@ -90,27 +90,27 @@ data "archive_file" "process_hash" {
 }
 
 resource "aws_lambda_function" "process_hash" {
-  function_name = "${var.project}-process-orders"
-  handler       = "node_lambda.handler"
-  runtime       = "nodejs18.x"
-  role          = aws_iam_role.lambda_execution_role.arn
-  filename      = data.archive_file.process_hash.output_path
+  function_name    = "${var.project}-process-orders"
+  handler          = "node_lambda.handler"
+  runtime          = "nodejs18.x"
+  role             = aws_iam_role.lambda_execution_role.arn
+  filename         = data.archive_file.process_hash.output_path
   source_code_hash = data.archive_file.process_hash.output_base64sha256
 }
 
 
 # Cloudfront Bucket
 data "aws_iam_policy_document" "cloudfront_logs" {
-    statement {
-        sid    = "AllowCloudFrontLogs"
-        effect = "Allow"
-        principals {
-            type        = "Service"
-            identifiers = ["cloudfront.amazonaws.com"]
-        }
-        actions   = ["s3:PutObject"]
-        resources = ["${aws_s3_bucket.immutable_audit_bucket.arn}/*"]
+  statement {
+    sid    = "AllowCloudFrontLogs"
+    effect = "Allow"
+    principals {
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
     }
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.immutable_audit_bucket.arn}/*"]
+  }
 }
 
 

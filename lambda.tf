@@ -49,6 +49,34 @@ resource "aws_iam_role_policy" "lambda_bedrock_invoke" {
   })
 }
 
+resource "aws_iam_role_policy" "lambda_token_lifecycle" {
+  name = "lambda-token-lifecycle"
+  role = aws_iam_role.lambda_execution_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ManageTokenTracking"
+        Effect = "Allow"
+        Action = [
+          "dynamodb:DeleteItem",
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:Query",
+          "dynamodb:Scan",
+          "dynamodb:UpdateItem"
+        ]
+        Resource = [
+          aws_dynamodb_table.dynamoDb_token_tracking.arn,
+          "${aws_dynamodb_table.dynamoDb_token_tracking.arn}/index/*",
+          aws_dynamodb_table.dynamoDb_token_revocation.arn
+        ]
+      }
+    ]
+  })
+}
+
 # Lambda Functions
 # Package the Lambda function code - a new Provide (run init when adding)
 # The `archive_file` data source is used to create a ZIP archive of the Lambda function code.
@@ -139,6 +167,12 @@ resource "aws_lambda_function" "get_token" {
   code_sha256   = data.archive_file.get_token.output_base64sha256
 
   runtime = "python3.9"
+
+  environment {
+    variables = {
+      TOKEN_TRACKING_TABLE = aws_dynamodb_table.dynamoDb_token_tracking.name
+    }
+  }
 }
 
 
@@ -242,6 +276,13 @@ resource "aws_lambda_function" "update_token" {
   code_sha256   = data.archive_file.update_token.output_base64sha256
 
   runtime = "python3.9"
+
+  environment {
+    variables = {
+      TOKEN_TRACKING_TABLE = aws_dynamodb_table.dynamoDb_token_tracking.name
+      REVOCATION_TABLE     = aws_dynamodb_table.dynamoDb_token_revocation.name
+    }
+  }
 }
 
 # Retrieve extra tokens to use for API calls - check for unused tokens
@@ -258,7 +299,7 @@ resource "aws_lambda_function" "unused_token_detector" {
   code_sha256   = data.archive_file.unused_token_detector.output_base64sha256
 
   runtime = "python3.9"
-  timeout = 90
+  timeout = 180
 
   environment {
     variables = {
@@ -366,6 +407,13 @@ resource "aws_lambda_function" "revoke_token" {
   code_sha256   = data.archive_file.revoke_token.output_base64sha256
 
   runtime = "python3.9"
+
+  environment {
+    variables = {
+      TOKEN_TRACKING_TABLE      = aws_dynamodb_table.dynamoDb_token_tracking.name
+      TOKEN_CLEANUP_AGE_MINUTES = "5"
+    }
+  }
 }
 
 

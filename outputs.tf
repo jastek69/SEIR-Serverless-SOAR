@@ -55,16 +55,16 @@ output "waf_log_group" {
 
 # EventBridge and outputs
 output "unused_token_schedule_arn" {
-  value = aws_scheduler_schedule.unused_token_schedule.arn
+  value       = aws_scheduler_schedule.unused_token_schedule.arn
   description = "ARN of the EventBridge Scheduler schedule for invoking the unused token detector Lambda function every 5 minutes."
 }
 
 output "unused_token_schedule_name" {
-  value = aws_scheduler_schedule.unused_token_schedule.name
+  value       = aws_scheduler_schedule.unused_token_schedule.name
   description = "Name of the EventBridge Scheduler schedule for invoking the unused token detector Lambda function every 5 minutes."
 }
 output "unused_token_schedule_target_function" {
-  value = aws_lambda_function.unused_token_detector.arn
+  value       = aws_lambda_function.unused_token_detector.arn
   description = "The ARN of the Lambda function being invoked from EventBridge Scheduler"
 }
 
