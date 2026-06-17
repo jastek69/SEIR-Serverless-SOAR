@@ -70,7 +70,7 @@ output "unused_token_schedule_target_function" {
 
 # Cognito outputs for user management and token flows
 output "cognito_admin_user_pool_id" {
-  value       = aws_cognito_user_pool.cognito_admin_pool.id
+  value       = aws_cognito_user_pool.cognito_rbac_pool.id
   description = "Cognito admin user pool ID"
 }
 
@@ -80,7 +80,7 @@ output "cognito_user_pool_id" {
 }
 
 output "cognito_admin_user_pool_client_id" {
-  value       = aws_cognito_user_pool_client.cognito_admin_pool_client.id
+  value       = aws_cognito_user_pool_client.cognito_rbac_pool_client.id
   description = "Cognito admin app client ID"
 }
 
@@ -90,11 +90,10 @@ output "cognito_user_pool_client_id" {
 }
 
 output "cognito_admin_issuer_url" {
-  value       = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.cognito_admin_pool.id}"
-  description = "OIDC issuer URL for admin user pool"
+  value = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.cognito_rbac_pool.id}"
 }
 
 output "cognito_user_issuer_url" {
-  value       = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.cognito_user_pool.id}"
+  value       = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.cognito_rbac_pool.id}"
   description = "OIDC issuer URL for user pool"
 }

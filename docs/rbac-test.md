@@ -6,8 +6,8 @@ Use this runbook to validate Cognito authentication, RBAC allow/deny behavior, W
 
 1. Create Cognito users and groups.
 2. Ensure app client settings and environment variables are correct.
-3. Get the admin token and export `ID_TOKEN` and `ACCESS_TOKEN`.
-4. Get the non-admin token and export `NON_ADMIN_ID_TOKEN`.
+3. Get the admin tokens and export `ID_TOKEN` and `ACCESS_TOKEN`.
+4. Get the non-admin tokens and export `NON_ADMIN_ID_TOKEN` and `NON_ADMIN_ACCESS_TOKEN`.
 5. Run scripted and manual tests.
 6. Verify logs, DynamoDB writes, and scheduler status.
 
@@ -100,7 +100,7 @@ Expected results:
 
 - If the user is in `MFA_SETUP`, the script prints a new MFA secret, you add it to your authenticator app, and then enter the current 6-digit code manually.
 - If the user is already in `SOFTWARE_TOKEN_MFA`, the script prompts for a current authenticator code and does not generate a new secret.
-- On success, it writes `Reports/admin_tokens.env`, and `source Reports/admin_tokens.env` loads the tokens.
+- On success, it writes `Reports/admin_tokens.env`, and `source Reports/admin_tokens.env` loads `ID_TOKEN` and `ACCESS_TOKEN`.
 - `--track-token` registers the Cognito ID token's `jti`, hash, issue time, and expiry in DynamoDB without storing the raw JWT.
 - The exported `ID_TOKEN_TRACKING_ID` lets `rbac_test.sh` mark that same JWT record as used after authenticated API calls.
 
@@ -180,9 +180,10 @@ Verify:
 
 ```bash
 echo "${#NON_ADMIN_ID_TOKEN}"
+echo "${#NON_ADMIN_ACCESS_TOKEN}"
 ```
 
-If that prints a non-zero length, you are ready to run the non-admin RBAC deny test.
+If both values print non-zero lengths, you are ready to run the non-admin scope/RBAC deny test.
 
 Notes:
 
@@ -194,6 +195,7 @@ Expected results:
 
 - `Reports/admin_tokens.env` is created.
 - `ID_TOKEN` and `ACCESS_TOKEN` load successfully after `source Reports/admin_tokens.env`.
+- With API Gateway `authorization_scopes` enabled, API calls must use `ACCESS_TOKEN`, not `ID_TOKEN`.
 
 ### 3.1 Manual one-time MFA bootstrap
 
@@ -229,7 +231,7 @@ Repeat the same manual bootstrap for non-admin if needed:
 
 - Set `USERNAME="user.test"`.
 - Set that user's password in `PASSWORD`.
-- After Step 4, export the non-admin token with `export NON_ADMIN_ID_TOKEN="$ID_TOKEN"`.
+- After Step 4, export the non-admin tokens with `export NON_ADMIN_ID_TOKEN="$ID_TOKEN"` and `export NON_ADMIN_ACCESS_TOKEN="$ACCESS_TOKEN"`.
 
 ## 4. Get non-admin token
 
@@ -249,7 +251,8 @@ source Reports/non_admin_tokens.env
 Expected results:
 
 - `Reports/non_admin_tokens.env` is created.
-- `NON_ADMIN_ID_TOKEN` is non-empty after sourcing the file.
+- `NON_ADMIN_ID_TOKEN` and `NON_ADMIN_ACCESS_TOKEN` are non-empty after sourcing the file.
+- `NON_ADMIN_ACCESS_TOKEN` is used for API Gateway scope-deny testing.
 
 ## 5. Run tests
 
@@ -262,17 +265,18 @@ export API_NODE_BASE="$(terraform output -raw api_node_invoke_url)"
 echo "API_PY_BASE=$API_PY_BASE"
 echo "API_NODE_BASE=$API_NODE_BASE"
 
-curl -i "$API_PY_BASE/PythonResource?name=denied" -H "Authorization: $NON_ADMIN_ID_TOKEN"
-curl -i "$API_NODE_BASE/NodeResource?name=denied" -H "Authorization: $NON_ADMIN_ID_TOKEN"
+curl -i "$API_PY_BASE/PythonResource?name=denied" -H "Authorization: $NON_ADMIN_ACCESS_TOKEN"
+curl -i "$API_NODE_BASE/NodeResource?name=denied" -H "Authorization: $NON_ADMIN_ACCESS_TOKEN"
 
-curl -i "$API_PY_BASE/PythonResource?name=Norrin" -H "Authorization: $ID_TOKEN"
-curl -i "$API_NODE_BASE/NodeResource?name=Norrin" -H "Authorization: $ID_TOKEN"
+curl -i "$API_PY_BASE/PythonResource?name=Norrin" -H "Authorization: $ACCESS_TOKEN"
+curl -i "$API_NODE_BASE/NodeResource?name=Norrin" -H "Authorization: $ACCESS_TOKEN"
 ```
 
 Expected results:
 
-- 403 for both non-admin requests.
-- 200 for both admin requests.
+- `403` for both non-admin requests.
+- `200` for both admin requests.
+- If admin returns `403`, decode `ACCESS_TOKEN` and confirm it contains the required `rbac-api/admin` scope.
 
 ### Capture logs
 
@@ -347,20 +351,22 @@ Expected: `401 Unauthorized`.
 ### 5.4 Positive auth test (admin token)
 
 ```bash
-curl -i "$API_PY_BASE/PythonResource?name=theo" -H "Authorization: $ID_TOKEN"
-curl -i "$API_NODE_BASE/NodeResource?name=theo" -H "Authorization: $ID_TOKEN"
+curl -i "$API_PY_BASE/PythonResource?name=theo" -H "Authorization: $ACCESS_TOKEN"
+curl -i "$API_NODE_BASE/NodeResource?name=theo" -H "Authorization: $ACCESS_TOKEN"
 ```
 
-Expected: `200 OK` for admin group membership.
+Expected: `200 OK` when the access token has the required API Gateway scope and the Lambda sees admin group membership.
 
 ### 5.5 RBAC deny-path test (non-admin token)
 
 ```bash
-curl -i "$API_PY_BASE/PythonResource?name=denied" -H "Authorization: $NON_ADMIN_ID_TOKEN"
-curl -i "$API_NODE_BASE/NodeResource?name=denied" -H "Authorization: $NON_ADMIN_ID_TOKEN"
+curl -i "$API_PY_BASE/PythonResource?name=denied" -H "Authorization: $NON_ADMIN_ACCESS_TOKEN"
+curl -i "$API_NODE_BASE/NodeResource?name=denied" -H "Authorization: $NON_ADMIN_ACCESS_TOKEN"
 ```
 
-Expected: `403` with `Access denied: admin group required`.
+Expected: `403`.
+
+With API Gateway `authorization_scopes`, this deny can happen before Lambda runs if the non-admin access token does not contain `rbac-api/admin`. If API Gateway allows the request through, Lambda still performs the final group-based RBAC check.
 
 If you get `401` with `The incoming token has expired`, refresh the non-admin token and rerun:
 
@@ -379,8 +385,8 @@ source Reports/non_admin_tokens.env
 Run strict block payloads first. These should return `403 Forbidden` when WAF is enforcing block mode.
 
 ```bash
-curl -i "$API_PY_BASE/PythonResource?name=%3Cscript%3Ealert(1)%3C%2Fscript%3E" -H "Authorization: $ID_TOKEN"
-curl -i "$API_NODE_BASE/NodeResource?name=%3Cscript%3Ealert(1)%3C%2Fscript%3E" -H "Authorization: $ID_TOKEN"
+curl -i "$API_PY_BASE/PythonResource?name=%3Cscript%3Ealert(1)%3C%2Fscript%3E" -H "Authorization: $ACCESS_TOKEN"
+curl -i "$API_NODE_BASE/NodeResource?name=%3Cscript%3Ealert(1)%3C%2Fscript%3E" -H "Authorization: $ACCESS_TOKEN"
 ```
 
 Expected strict results:
@@ -391,8 +397,8 @@ Expected strict results:
 Run SQLi-style payloads as informational checks. These may be `200` or `403` depending on current managed rule coverage and sensitivity.
 
 ```bash
-curl -i "$API_PY_BASE/PythonResource?name=taaops%27%20OR%20%271%27%3D%271" -H "Authorization: $ID_TOKEN"
-curl -i "$API_NODE_BASE/NodeResource?name=taaops%27%20OR%20%271%27%3D%271" -H "Authorization: $ID_TOKEN"
+curl -i "$API_PY_BASE/PythonResource?name=taaops%27%20OR%20%271%27%3D%271" -H "Authorization: $ACCESS_TOKEN"
+curl -i "$API_NODE_BASE/NodeResource?name=taaops%27%20OR%20%271%27%3D%271" -H "Authorization: $ACCESS_TOKEN"
 ```
 
 Expected informational results:
@@ -702,10 +708,17 @@ Group claims:
 python -c "import os,json,base64; [print(n,json.loads(base64.urlsafe_b64decode((t:=os.environ[n]).split('.')[1]+'='*(-len(t.split('.')[1])%4))).get('cognito:groups')) for n in ['ID_TOKEN','NON_ADMIN_ID_TOKEN']]"
 ```
 
+Access-token scopes:
+```
+python -c "import os,json,base64; [print(n,json.loads(base64.urlsafe_b64decode((t:=os.environ[n]).split('.')[1]+'='*(-len(t.split('.')[1])%4))).get('scope')) for n in ['ACCESS_TOKEN','NON_ADMIN_ACCESS_TOKEN']]"
+```
+
 
 ```
 echo "Admin ID token length: ${#ID_TOKEN}"
+echo "Admin access token length: ${#ACCESS_TOKEN}"
 echo "Non-admin ID token length: ${#NON_ADMIN_ID_TOKEN}"
+echo "Non-admin access token length: ${#NON_ADMIN_ACCESS_TOKEN}"
 ```
 
 
@@ -821,7 +834,9 @@ Verify the following:
 
 ```bash
 echo "Admin token length: ${#ID_TOKEN}"
+echo "Admin access token length: ${#ACCESS_TOKEN}"
 echo "Non-admin token length: ${#NON_ADMIN_ID_TOKEN}"
+echo "Non-admin access token length: ${#NON_ADMIN_ACCESS_TOKEN}"
 aws sts get-caller-identity
 ```
 
@@ -836,7 +851,9 @@ export REGION="us-west-2"
 
 printf 'REGION=%s\n' "$REGION"
 printf 'ID_TOKEN length=%s\n' "${#ID_TOKEN}"
+printf 'ACCESS_TOKEN length=%s\n' "${#ACCESS_TOKEN}"
 printf 'NON_ADMIN_ID_TOKEN length=%s\n' "${#NON_ADMIN_ID_TOKEN}"
+printf 'NON_ADMIN_ACCESS_TOKEN length=%s\n' "${#NON_ADMIN_ACCESS_TOKEN}"
 
 terraform validate
 aws sts get-caller-identity

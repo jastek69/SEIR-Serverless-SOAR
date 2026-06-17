@@ -29,7 +29,6 @@ from pathlib import Path
 
 # Definitions:
 
-
 # The script will prompt for the Cognito password (if not provided via --password), then guide the user through the MFA setup process. If the user is already in MFA_SETUP, it will prompt for the current TOTP code. If not, it will initiate MFA setup, display the new secret, optionally email it via SES, and then prompt for the TOTP code to verify and complete setup. Finally, it will output export commands for the obtained tokens or write them to an env file if --write-env is specified.
 
 # subprocess will be used to process AWS CLI commands for Cognito interactions and SES email sending. All commands will capture stdout and stderr to provide clear error messages if any step fails. The script will handle various edge cases, such as missing tokens in responses or unsupported challenge types, and will print informative messages throughout the process.
@@ -121,9 +120,10 @@ def register_token_tracking(id_token, username, region):
 
 
 def write_env_file(path, token_var_name, id_token, access_token, refresh_token, tracking_id=""):
+    access_token_var = "NON_ADMIN_ACCESS_TOKEN" if token_var_name == "NON_ADMIN_ID_TOKEN" else "ACCESS_TOKEN"
     content = (
         f"export {token_var_name}=\"{id_token}\"\n"
-        f"export ACCESS_TOKEN=\"{access_token}\"\n"
+        f"export {access_token_var}=\"{access_token}\"\n"
         f"export REFRESH_TOKEN=\"{refresh_token}\"\n"
         f"export {token_var_name}_TRACKING_ID=\"{tracking_id}\"\n"
     )
@@ -154,9 +154,10 @@ def emit_tokens(args, id_token, access_token, refresh_token):
         print(f"Wrote export file: {env_path}")
         print(f"Run: source {env_path}")
     else:
+        access_token_var = "NON_ADMIN_ACCESS_TOKEN" if args.token_var == "NON_ADMIN_ID_TOKEN" else "ACCESS_TOKEN"
         print("\nExport commands:")
         print(f"export {args.token_var}=\"{id_token}\"")
-        print(f"export ACCESS_TOKEN=\"{access_token}\"")
+        print(f"export {access_token_var}=\"{access_token}\"")
         if refresh_token:
             print(f"export REFRESH_TOKEN=\"{refresh_token}\"")
         if tracking_id:

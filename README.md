@@ -1417,211 +1417,141 @@ The decision is:
 
 ### RBAC
 
-Summary: Cognito for OAuth/JWT identity. DynamoDB for session metadata, token revocation records, OAuth state/nonce, device tracking, and audit events.
+RBAC means Role-Based Access Control. The core idea is simple:
 
-- Cognito:
-  - OAuth/JWT identity
-  - issue ID/access/refresh tokens
-  - API validates access tokens locally using Cognito’s JWKS/public keys.
-
-RBAC — Role-Based Access Control
-
-What is RBAC?
-
-Role-Based Access Control (RBAC) is a security model where:
-
-Access is assigned to roles, not directly to users.
-
-Simple Model---> User → Role → Permissions → Resource
-
-| User     | Role    | Access            |
-| -------- | ------- | ----------------- |
-| student1 | student | `/python`         |
-| admin1   | admin   | `/python + /node` |
-
-Purpose of RBAC in This Lab
-
-So far:
-
-WAF → filters traffic
-Cognito → verifies identity
-
-Now: RBAC → controls what authenticated users can do
-Translation: “Not everyone who gets in should have full access.”
-
-Updated System Flow: Client → WAF → API Gateway (Auth) → Lambda (RBAC decision)
-
-Important:
-
-Authentication happens at API Gateway
-Authorization (RBAC) often happens in Lambda
-
-RBAC in Cognito
-
-With Amazon Cognito, RBAC is implemented using:
-
-Groups
-
-Examples:
-
-    students
-    admins
-    Lizzo lovers
-    Chewbacca
-    Malgus Clan
-
-Token Claims
-
-When a user logs in, their JWT contains:
-
-    "cognito:groups": ["students"]
-
-Why RBAC Matters????
-
-1. Scalability
-
-Instead of: ---> assigning permissions per user ❌
-You:---> assign roles once✅
-Or you could assign multiple times to Lizzo.  You want that???
-
-1. Consistency
-
-All users in a role behave the same way
-
-1. Security
-
-You follow:
-
-    Least Privilege Principle
-
-Users only get what they need
-
-Connecting RBAC to Microsoft / Active Directory
-
-RBAC in Microsoft World
-
-In:
-
-Active Directory
-Microsoft Entra ID
-
-RBAC is implemented through:
-
-✔ Security Groups
-
-Examples:
-
-        Domain Users
-        Admins
-        HR
-        Finance
-
-| Concept      | Cognito          | Microsoft           |
-| ------------ | ---------------- | ------------------- |
-| User         | User Pool User   | AD User             |
-| Group        | Cognito Group    | Security Group      |
-| Role         | Group membership | Group membership    |
-| Token Claims | JWT              | SAML / OAuth claims |
-
-Remember this: “Cognito groups = AD security groups. Same idea, different platform.”
-
-Mental Model (Important)
-
-Cognito (This Lab)
-    Lightweight
-    API-focused
-    Cloud-native
-
-AD / Entra SEIR
-    Enterprise identity
-    Corporate networks
-    SSO across apps
-
-“Today you learn RBAC in Cognito. Later you will see the same model in AD and Entra—just bigger and more complex.”
-
-RBAC Decision Point in System
-
-Where does RBAC happen?
-
-Two options:
-
-        1. API Gateway (Advanced)
-        
-        Harder
-        Less flexible
-        
-        2. Lambda (Recommended for Lab)
-        
-        Why Lambda?
-        Easy to understand
-        Easy to debug
-        Real-world pattern for many systems
-
-Example RBAC Logic
-
-In Lambda:
-
-        groups = event["requestContext"]["authorizer"]["claims"].get("cognito:groups", [])
-        
-        if "admin" in groups:
-            # full access
-        elif "student" in groups:
-            # limited access
-        else:
-            # deny
-
-“Your code decides access based on identity claims.”
-
-NOTE:
-
-Authentication ≠ authorization
-Just because you log in doesn’t mean you can do everything
-Systems enforce behavior based on identity
-“RBAC is how companies survive audits.”
-
-- DynamoDB
-  - Tables for tokens - stores session/token metadata - session tracking
-  - DynamoDB TTL expires records automatically
-  - DynamoDB: store business event state and processing records
-  - DynamoDB support revocation - denylist check
-- Secrets Manager stores app secrets, OAuth client secrets, API keys, webhook signing secrets, etc.
-- AWS Secrets Manager - rotation
-- OPA or Vault: store secrets
-- Cognito: Stateless
-
-Example DynamoDB table:
-
-```
-AuthSessionEvents / TokenMetadata
-- user_id
-- session_id
-- refresh_token_id_hash
-- device_id
-- provider: cognito/google/github/etc
-- status: active/revoked/expired
-- issued_at
-- expires_at
-- revoked_at
-- ip_address
-- user_agent
-- last_seen_at
-- ttl
+```text
+User -> Role or Group -> Permissions -> Resource
 ```
 
-NOTES:
-Cognito access tokens are normally valid until expiration.
-For immediate revocation, use either:
-    - short access-token lifetimes
-    - refresh-token revocation
-    - DynamoDB-backed denylist check for sensitive operations
+In this lab, Cognito authenticates the user, API Gateway validates the token, and Lambda enforces the admin/non-admin authorization decision.
 
-# DynamoDB
+```text
+Client -> AWS WAF -> API Gateway Cognito Authorizer -> Lambda RBAC logic -> DynamoDB audit/tracking
+```
 
-- DynamoDB for
-  - Tables for tokens - stores session/token metadata - session tracking
-  - TTL expires records automatically
-  - store business event state and processing records
-  - Revocation - denylist check
+Authentication and authorization are related, but they are not the same:
+
+| Layer | Responsibility | Current Lab Behavior |
+| ----- | -------------- | -------------------- |
+| AWS WAF | Filters malicious HTTP traffic before API Gateway | Blocks payloads such as XSS/SQLi when rules match |
+| Cognito User Pool | Authenticates the user and issues JWTs | Issues ID/access/refresh tokens after login and MFA |
+| API Gateway Cognito Authorizer | Validates the JWT | Confirms the token is valid for the configured user pool |
+| Lambda | Enforces RBAC | Reads Cognito claims/groups and allows or denies the request |
+| DynamoDB | Tracks token/session metadata | Stores token hash, status, timestamps, revocation/audit metadata |
+
+#### Current Design: Lambda-Enforced RBAC
+
+The current Terraform methods use a Cognito user pool authorizer without `authorization_scopes`:
+
+```hcl
+authorization = "COGNITO_USER_POOLS"
+authorizer_id = aws_api_gateway_authorizer.python_cognito.id
+```
+
+That means API Gateway acts as the authentication gate. It verifies that the caller supplied a valid Cognito JWT. After that, Lambda receives the request and performs the RBAC decision from token claims.
+
+In this design, the API is commonly tested with the Cognito ID token:
+
+```bash
+curl "$API_PY_BASE/PythonResource?name=Norrin" \
+  -H "Authorization: $ID_TOKEN"
+```
+
+The Lambda handler reads the Cognito claims passed by API Gateway:
+
+```python
+claims = event.get("requestContext", {}).get("authorizer", {}).get("claims", {})
+groups = claims.get("cognito:groups", "")
+
+if "admin" not in groups:
+    return {
+        "statusCode": 403,
+        "body": '{"message": "Access denied: admin group required"}'
+    }
+```
+
+This produces the expected lab behavior:
+
+| Caller | Token Valid? | Group Claim | Result |
+| ------ | ------------ | ----------- | ------ |
+| No token | No | None | `401 Unauthorized` |
+| Non-admin user | Yes | `user` | `403 Forbidden` |
+| Admin user | Yes | `admin` | `200 OK` |
+
+#### Alternative Design: API Gateway-Enforced Scopes
+
+API Gateway can also enforce authorization before Lambda runs, but that is a different design. In that model, the method uses `authorization_scopes` and the client must call the API with a Cognito access token that contains the required OAuth scope.
+
+Example:
+
+```hcl
+resource "aws_api_gateway_method" "PythonMethod" {
+  rest_api_id   = aws_api_gateway_rest_api.PythonAPI.id
+  resource_id   = aws_api_gateway_resource.PythonResource.id
+  http_method   = "GET"
+
+  authorization        = "COGNITO_USER_POOLS"
+  authorizer_id        = aws_api_gateway_authorizer.python_cognito.id
+  authorization_scopes = ["soar-api/admin"]
+}
+```
+
+For that to work, Cognito must be configured with:
+
+- A resource server, for example `soar-api`
+- Custom scopes, for example `admin` or `read`
+- An app client that is allowed to request those scopes
+- An OAuth flow that returns an access token containing the requested scope
+
+Then API Gateway checks the access token's `scope` claim. If the required scope is missing, API Gateway rejects the request and Lambda is not invoked.
+
+#### ID Tokens vs Access Tokens
+
+| Token | Main Purpose | Best Fit |
+| ----- | ------------ | -------- |
+| ID token | Proves who the signed-in user is | Claim/group based RBAC in Lambda |
+| Access token | Proves what the caller is allowed to access | API Gateway scope authorization |
+
+AWS documents the split this way: ID tokens authorize API calls based on identity claims, while access tokens authorize API calls based on custom scopes for protected resources.
+
+References:
+
+- API Gateway Cognito authorizers: <https://docs.aws.amazon.com/apigateway/latest/developerguide/apigateway-integrate-with-cognito.html>
+- Cognito resource servers and scopes: <https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-define-resource-servers.html>
+- Cognito access tokens: <https://docs.aws.amazon.com/cognito/latest/developerguide/amazon-cognito-user-pools-using-the-access-token.html>
+
+#### DynamoDB's Role
+
+DynamoDB does not validate JWTs. Token validation happens through Cognito/API Gateway.
+
+DynamoDB supports the surrounding security workflow:
+
+- Token/session tracking
+- Token hash storage instead of raw token storage
+- Status values such as `active`, `used`, or `revoked`
+- TTL-based cleanup
+- Revocation denylist lookups for sensitive operations
+- Audit evidence for unused-token detection and SOAR reporting
+
+Example token-tracking fields:
+
+```text
+token_id
+token_hash
+username
+status
+issued_at
+expires_at
+last_seen_at
+revoked_at
+ttl
+```
+
+For immediate revocation, use one or more of these controls:
+
+- Short access-token lifetimes
+- Refresh-token revocation
+- DynamoDB-backed denylist checks for sensitive operations
 
 ### Create: - lessonf walkthru
 
@@ -1874,124 +1804,6 @@ Learn more about this pattern at Serverless Land Patterns: [https://serverlessla
 
 Important: this application uses various AWS services and there are costs associated with these services after the Free Tier usage - please see the [AWS Pricing page](https://aws.amazon.com/pricing/) for details.
 
-## Deployment Instructions
-
-1. Create a new directory, navigate to that directory in a terminal and clone the GitHub repository:
-
-    ```
-    git clone https://github.com/aws-samples/serverless-patterns
-    ```
-
-1. Change directory to the pattern directory:
-
-    ```
-    cd apigw-eventbridge
-    ```
-
-1. From the command line, use AWS SAM to deploy the AWS resources for the pattern as specified in the template.yml file:
-
-    ```
-    sam deploy --guided --capabilities CAPABILITY_NAMED_IAM
-    ```
-
-1. During the prompts:
-    - Enter a stack name
-    - Enter the desired AWS Region
-    - Allow SAM CLI to create IAM roles with the required permissions.
-
-    Once you have run `sam deploy --guided` mode once and saved arguments to a configuration file (samconfig.toml), you can use `sam deploy` in future to use these defaults.
-
-1. Note the outputs from the SAM deployment process. These contain the resource names and/or ARNs which are used for testing.
-
-## How it works
-
-The endpoint that will be created might look like, for example: `http://dev-events.example.com/apigw2eb/{source}/{detailType}`
-
-Simply specify any `source` and `detailType` as a path parameters. The `body` of the request could be any valid json object.
-
-### The AWS SAM template deploys the following resources
-
-| Type | Logical ID |
-| --- | --- |
-| AWS::ApiGatewayV2::Api | HttpApi |
-| AWS::Events::EventBus | ApplicationEventBus |
-| AWS::ApiGatewayV2::Stage | HttpApiStage |
-| AWS::ApiGatewayV2::ApiMapping | HttpApiMapping |
-| AWS::IAM::Role | HttpApiIntegrationEventBridgeRole |
-| AWS::ApiGatewayV2::Integration | HttpApiIntegrationEventBridge |
-| AWS::ApiGatewayV2::Route | HttpApiRoute |
-| AWS::CloudFormation::Stack1 | apigw2eb-[STAGE] |
-
-When you send an HTTP POST request, the API Gateway publishes an event to the custom event bus in EventBridge.
-
-## Testing
-
-Use your preferred terminal to send a http request.
-
-```bash
-curl --location --request POST 'https://dev-events.example.com/apigw2eb/mysource/mydetailtype' \
---header 'Content-Type: application/json' \
---data-raw '{
-    "mybody": {
-        "attr1": 1,
-        "attr2": [1,2]
-    }
-}'
-```
-
-The response would be like:
-
-```bash
-{
-    "Entries": [
-        {
-            "EventId": "1a15592f-87a0-e0d8-8e21-172e63c57212"
-        }
-    ],
-    "FailedEntryCount": 0
-}
-```
-
-This means your event was published successfuly.
-
-So, the Lambda event for the request above will look like:
-
-```json
-{
-    "version": "0",
-    "id": "1a15592f-87a0-e0d8-8e21-172e63c57594",
-    "detail-type": "mydetailtype",
-    "source": "com.mycompany.mysource",
-    "account": "xxxxxxxxxx74",
-    "time": "2021-04-03T14:45:32Z",
-    "region": "eu-central-1",
-    "resources": [],
-    "detail": {
-        "mybody": {
-            "attr1": 1,
-            "attr2": [1, 2]
-        }
-    }
-}
-```
-
-Create your own either Lambda function or any other consumer for events you send with this API Gateway endpoint.
-
-## Cleanup
-
-1. Delete the stack
-
-    ```bash
-    aws cloudformation delete-stack --stack-name STACK_NAME
-    ```
-
-1. Confirm the stack has been deleted
-
-    ```bash
-    aws cloudformation list-stacks --query "StackSummaries[?contains(StackName,'STACK_NAME')].StackStatus"
-    ```
-
-----
 
 ## Additional resources
 
@@ -2239,6 +2051,14 @@ Rules/targets: only if you want to route alarm events through EventBridge.
 
 # Bedrock SOAR (Security Orchestration, Automation, and Response)
 
+SOAR — Security Orchestration, Automation, and Response
+
+“Cloud systems generate security events constantly. Engineers must know how those events are handled.”
+
+What is SOAR? “SOAR is what happens when security systems stop being passive and start taking action.”
+
+Security Orchestration, Automation, and Response (SOAR) is a security operations approach where systems:
+
 ```
 detect events
 automate investigation steps
@@ -2257,7 +2077,138 @@ SOAR Changes Model
     → Human escalation if needed
 ```
 
-## SSM Parameter store
+
+Modern environments generate:
+
+    millions of logs
+    thousands of alerts
+    constant authentication events
+    API activity
+    cloud telemetry
+
+Humans cannot manually process all of it.
+
+
+Without automation:
+
+    Alert
+    → Human reads it..... Then human watches YouTube a few hours
+    → Human investigates..... after a few days
+    → Human opens ticket... maybe
+    → Human responds.... after payday
+
+SOAR Changes the Model
+
+        Event
+        → Automated detection
+        → Automated enrichment
+        → Automated decision
+        → Automated response
+        → Human escalation if needed
+
+Key idea: “Humans should handle judgment. Automation should handle repetition.”
+
+SOAR in This Lab---> You are already building the foundation.
+
+Current Workflow
+
+        User logs in
+        → Token issued
+        → Token unused
+        → EventBridge detects behavior
+        → Alert generated
+        
+That is already a lightweight SOAR workflow.
+
+Real-World SOAR Example
+
+Suspicious Login.... from bananaland...
+
+    User authenticates from unusual location
+        → SOAR workflow triggered
+        → enrich IP reputation
+        → check MFA status
+        → notify Slack
+        → create Jira ticket
+        → disable account if high risk
+
+Why Companies Use SOAR
+1. Speed --> Automation reacts faster than humans.
+2. Consistency --> Playbooks execute the same way every time.
+3. Scale--> Security teams can manage larger environments.
+4. Alert Reduction--> Automated triage reduces analyst fatigue.
+5. Cost Reduction--> Less manual investigation work.
+
+Why This Is Important for Cloud Engineers
+
+Because modern cloud engineering is no longer just:
+
+        VMs
+        networking
+        Terraform
+
+Modern engineers must understand:
+
+        identity
+        telemetry
+        automation
+        detection
+        response workflows
+
+SOAR vs SIEM (Important Distinction)
+
+Students confuse these constantly.
+
+| System | Purpose                     |
+| ------ | --------------------------- |
+| SIEM   | Collect + analyze logs      |
+| SOAR   | Automate response workflows |
+
+SIEM--> “Something suspicious happened.”
+
+SOAR
+“SOAR is security as workflow automation.”
+“Detection without response is incomplete.”
+
+        “Something suspicious happened, so I automatically:
+        - enriched data
+        - created ticket
+        - alerted Slack
+        - disabled access”
+
+Mapping This to Current Class
+
+Current lab already has:
+
+| Component   | SOAR Role         |
+| ----------- | ----------------- |
+| Cognito     | identity source   |
+| Lambda      | automation engine |
+| DynamoDB    | state tracking    |
+| EventBridge | orchestration     |
+| WAF         | edge protection   |
+| CloudWatch  | telemetry         |
+
+So you have
+
+        multiple AWS services cooperating
+        event-driven security
+        identity-aware automation
+
+Key Takeaways
+
+You should leave understanding:
+
+✔ SOAR automates security workflows
+✔ Event-driven systems enable rapid response
+✔ Security tools work together through orchestration
+✔ Modern cloud environments require automation
+✔ Detection is only the beginning
+
+
+## SOAR Configuration
+
+### SSM Parameter store
 
 In this repo, SSM is being used as the runtime prompt store for SOAR, so the Lambda can fetch prompt text dynamically instead of hardcoding it.
 
@@ -2268,7 +2219,9 @@ In this repo, SSM is being used as the runtime prompt store for SOAR, so the Lam
 5. If SSM returns a value, that prompt is used and marked as source ssm in unused_token_detector.py:62.
 6. If SSM is missing/unavailable, it falls back to built-in text and marks source fallback in unused_token_detector.py:67.
 
-### Example relevant settings
+### Example relevant settings inside:
+- `unused_token_detector.py` 
+- `lambda.tf: resource "aws_lambda_function" "unused_token_detector"`
 
 Terraform parameter definition:
 
@@ -2749,3 +2702,42 @@ This defines who or what is allowed to invoke or modify the event rule. This act
 example: Example: Granting EventBridge the permission to send messages to an SNS topic or a CloudWatch log group.
 
 When a rule runs in EventBridge, all of the targets associated with the rule are invoked. Rules can invoke AWS Lambda functions, publish to Amazon SNS topics, or relay the event to Kinesis streams. To make API calls against the resources you own, EventBridge needs the appropriate permissions. For Amazon CloudWatch Logs resources, EventBridge uses resource-based policies. For Lambda, Amazon SNS, and Amazon SQS resources, EventBridge can use either an IAM execution role or a resource-based policy. For Kinesis streams, EventBridge uses identity-based policies.
+
+
+## AI Cost Controls:
+Primary Cost Reduction Strategies
+1. Optimize Token Usage - Token count is the biggest driver of cost
+  - Reduce token usage by setting appropriate `max_tokens` parameter. Set it to closely match your expected response sizes rather than using high default values
+  - Trim prompts: Remove verbose language, use concise phrasing, and enforce maximum prompt sizes
+  - Limit output length: Use explicit output length constraints to prevent unnecessarily long responses
+
+2. Use Tiered Model Selection
+Instead of always using Claude Sonnet 4.6 (your most expensive model):
+- Route simple tasks to Claude 3 Haiku (faster, cheaper)
+- Use Claude 3.5 Sonnet for moderate complexity
+- Reserve Claude Sonnet 4.6 only for complex tasks
+This can reduce costs by up to 30% without compromising accuracy
+3. Implement Prompt Caching
+Cache repeated prompt prefixes between requests
+Can reduce input token costs by up to 85%
+Particularly effective if you have static system prompts or templates
+4. Use Intelligent Prompt Routing
+Amazon Bedrock offers automatic routing between models in the same family based on complexity, which can significantly reduce costs.
+
+
+Example: Terraform code optimization 
+```JSON
+# Example optimization in Terraform
+resource "aws_bedrock_model_invocation" "example" {
+  model_id = "anthropic.claude-3-haiku-20240307-v1:0"  # Use cheaper model for simple tasks
+  
+  body = jsonencode({
+    anthropic_version = "bedrock-2023-05-31"
+    max_tokens       = 100  # Set appropriate limit instead of default
+    messages = [{
+      role    = "user"
+      content = "Concise prompt here"  # Keep prompts short and focused
+    }]
+  })
+}
+```

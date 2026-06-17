@@ -15,7 +15,7 @@ data "terraform_remote_state" "cognito" {
 
 locals {
   cognito_user_pool_arn = var.cognito_user_pool_arn != "" ? var.cognito_user_pool_arn : (
-    aws_cognito_user_pool.cognito_user_pool.arn != "" ? aws_cognito_user_pool.cognito_user_pool.arn : (
+    aws_cognito_user_pool.cognito_rbac_pool.arn != "" ? aws_cognito_user_pool.cognito_rbac_pool.arn : (
       length(data.terraform_remote_state.cognito) > 0 ? lookup(data.terraform_remote_state.cognito[0].outputs, var.cognito_state_output_name, "") : ""
     )
   )
@@ -79,11 +79,12 @@ resource "aws_api_gateway_resource" "PythonResource" {
 
 # https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/api_gateway_method
 resource "aws_api_gateway_method" "PythonMethod" {
-  rest_api_id   = aws_api_gateway_rest_api.PythonAPI.id
-  resource_id   = aws_api_gateway_resource.PythonResource.id
-  http_method   = "GET"
-  authorization = "COGNITO_USER_POOLS"
-  authorizer_id = aws_api_gateway_authorizer.python_cognito.id
+  rest_api_id          = aws_api_gateway_rest_api.PythonAPI.id
+  resource_id          = aws_api_gateway_resource.PythonResource.id
+  http_method          = "GET"
+  authorization        = "COGNITO_USER_POOLS"
+  authorizer_id        = aws_api_gateway_authorizer.python_cognito.id
+  authorization_scopes = ["${aws_cognito_resource_server.rbac_api_resource_server.identifier}/admin"]
 }
 
 
@@ -190,11 +191,12 @@ resource "aws_api_gateway_resource" "NodeResource" {
 
 # https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/api_gateway_method
 resource "aws_api_gateway_method" "NodeMethod" {
-  rest_api_id   = aws_api_gateway_rest_api.NodeAPI.id
-  resource_id   = aws_api_gateway_resource.NodeResource.id
-  http_method   = "GET"
-  authorization = "COGNITO_USER_POOLS"
-  authorizer_id = aws_api_gateway_authorizer.node_cognito.id
+  rest_api_id          = aws_api_gateway_rest_api.NodeAPI.id
+  resource_id          = aws_api_gateway_resource.NodeResource.id
+  http_method          = "GET"
+  authorization        = "COGNITO_USER_POOLS"
+  authorizer_id        = aws_api_gateway_authorizer.node_cognito.id
+  authorization_scopes = ["rbac-api/admin"]
 }
 
 

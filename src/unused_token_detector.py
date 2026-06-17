@@ -10,14 +10,14 @@ from boto3.dynamodb.conditions import Attr
 
 
 TRACKING_TABLE = os.environ.get("TOKEN_TRACKING_TABLE", "token-tracking")
-UNUSED_TOKEN_THRESHOLD_MINUTES = int(os.environ.get("UNUSED_TOKEN_THRESHOLD_MINUTES", "5"))
+UNUSED_TOKEN_THRESHOLD_MINUTES = int(os.environ.get("UNUSED_TOKEN_THRESHOLD_MINUTES", "15"))
 UNUSED_TOKEN_ALERT_TOPIC_ARN = os.environ.get("UNUSED_TOKEN_ALERT_TOPIC_ARN", "")
 TRANSLATION_BUCKET = os.environ.get("TRANSLATION_BUCKET", "")
 BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "")
 SOAR_PROMPT_PARAM_NAME = os.environ.get("SOAR_PROMPT_PARAM_NAME", "/bedrock/soar-prompt")
-SOAR_MAX_OUTPUT_TOKENS = int(os.environ.get("SOAR_MAX_OUTPUT_TOKENS", "1800"))
+SOAR_MAX_OUTPUT_TOKENS = int(os.environ.get("SOAR_MAX_OUTPUT_TOKENS", "300"))
 SOAR_TEMPERATURE = float(os.environ.get("SOAR_TEMPERATURE", "0.3"))
-SOAR_MAX_FINDINGS_IN_PROMPT = int(os.environ.get("SOAR_MAX_FINDINGS_IN_PROMPT", "25"))
+SOAR_MAX_FINDINGS_IN_PROMPT = int(os.environ.get("SOAR_MAX_FINDINGS_IN_PROMPT", "5"))
 SOAR_TARGET_WORDS = int(os.environ.get("SOAR_TARGET_WORDS", "0"))
 SOAR_MAX_BULLETS_PER_SECTION = int(os.environ.get("SOAR_MAX_BULLETS_PER_SECTION", "0"))
 SOAR_RISK_FOCUS = os.environ.get("SOAR_RISK_FOCUS", "all").strip().lower()

@@ -140,21 +140,28 @@ if [[ -z "${ID_TOKEN:-}" || -z "${ACCESS_TOKEN:-}" ]]; then
     echo "ID_TOKEN/ACCESS_TOKEN not pre-set; API auth tests will be skipped."
     echo "Set ID_TOKEN and ACCESS_TOKEN in your shell to run positive/RBAC/WAF auth checks."
 else
-    if token_is_fresh "$ID_TOKEN"; then
+    if token_is_fresh "$ID_TOKEN" && token_is_fresh "$ACCESS_TOKEN"; then
         VALID_ID_TOKEN="$ID_TOKEN"
         VALID_ACCESS_TOKEN="$ACCESS_TOKEN"
     else
         echo "ID_TOKEN appears expired or invalid; skipping auth-required API tests."
         echo "Refresh with: python scripts/mfa_bootstrap.py --username admin.test --region $REGION --token-var ID_TOKEN --write-env Reports/admin_tokens.env"
         unset VALID_ID_TOKEN
+        unset VALID_ACCESS_TOKEN
     fi
 fi
 
 NON_ADMIN_ID_TOKEN="${NON_ADMIN_ID_TOKEN:-}"
+NON_ADMIN_ACCESS_TOKEN="${NON_ADMIN_ACCESS_TOKEN:-}"
 if [[ -n "$NON_ADMIN_ID_TOKEN" ]] && ! token_is_fresh "$NON_ADMIN_ID_TOKEN"; then
-    echo "NON_ADMIN_ID_TOKEN appears expired or invalid; skipping RBAC deny test."
-    echo "Refresh with: python scripts/mfa_bootstrap.py --username user.test --region $REGION --token-var NON_ADMIN_ID_TOKEN --write-env Reports/non_admin_tokens.env"
+    echo "NON_ADMIN_ID_TOKEN appears expired or invalid."
     NON_ADMIN_ID_TOKEN=""
+fi
+
+if [[ -n "$NON_ADMIN_ACCESS_TOKEN" ]] && ! token_is_fresh "$NON_ADMIN_ACCESS_TOKEN"; then
+    echo "NON_ADMIN_ACCESS_TOKEN appears expired or invalid; skipping scope deny test."
+    echo "Refresh with: python scripts/mfa_bootstrap.py --username user.test --region $REGION --token-var NON_ADMIN_ID_TOKEN --write-env Reports/non_admin_tokens.env"
+    NON_ADMIN_ACCESS_TOKEN=""
 fi
 
 # Example of invoking the Python Lambda function directly for testing purposes, passing the tokens as environment variables.
@@ -201,19 +208,19 @@ echo "Unused token detector invoked. Response saved to unused-detector-response.
 echo "Testing script execution completed. Check the generated reports in $REPORTS_DIR and the Lambda responses in response.json, node_response.json, and invalid_response.json for results."    
 
 
-# RBAC deny testing using a dedicated non-admin token variable. This allows for more explicit testing of RBAC scenarios without relying on the validity of the main ID_TOKEN, which may have admin privileges.
-# Setting NON_ADMIN_ID_TOKEN to a valid token from a non-admin user will directly test the RBAC deny path and ensure that it returns the expected 403 Forbidden response when accessing protected resources.
-# If NON_ADMIN_ID_TOKEN is not set, the script will skip the RBAC deny test and provide a message indicating how to enable it.
+# RBAC deny testing uses the non-admin access token when API Gateway authorization_scopes are enabled.
+# API Gateway should reject tokens without the required admin scope before Lambda runs.
+# If NON_ADMIN_ACCESS_TOKEN is not set, the script skips the explicit non-admin deny test.
 echo "testing Negative auth scenario with Node Lambda function..."
 run_curl_with_status PY_NO_TOKEN_STATUS "$API_PY_BASE/PythonResource"
 run_curl_with_status NODE_NO_TOKEN_STATUS "$API_NODE_BASE/NodeResource"
 assert_status "Python no-token auth" "401" "$PY_NO_TOKEN_STATUS"
 assert_status "Node no-token auth" "401" "$NODE_NO_TOKEN_STATUS"
 
-if [[ -n "${VALID_ID_TOKEN:-}" ]]; then
+if [[ -n "${VALID_ACCESS_TOKEN:-}" ]]; then
     echo "Positive auth test (valid token)"
-    run_curl_with_status PY_ADMIN_STATUS "$API_PY_BASE/PythonResource?name=theo" -H "Authorization: $VALID_ID_TOKEN"
-    run_curl_with_status NODE_ADMIN_STATUS "$API_NODE_BASE/NodeResource?name=theo" -H "Authorization: $VALID_ID_TOKEN"
+    run_curl_with_status PY_ADMIN_STATUS "$API_PY_BASE/PythonResource?name=theo" -H "Authorization: $VALID_ACCESS_TOKEN"
+    run_curl_with_status NODE_ADMIN_STATUS "$API_NODE_BASE/NodeResource?name=theo" -H "Authorization: $VALID_ACCESS_TOKEN"
     assert_status "Python admin auth" "200" "$PY_ADMIN_STATUS"
     assert_status "Node admin auth" "200" "$NODE_ADMIN_STATUS"
 
@@ -227,12 +234,12 @@ if [[ -n "${VALID_ID_TOKEN:-}" ]]; then
             update-admin-token-response.json
     fi
 
-    if [[ -n "$NON_ADMIN_ID_TOKEN" ]]; then
-        echo "RBAC deny test with non-admin token (expected: 403)"
-        run_curl_with_status PY_RBAC_DENY_STATUS "$API_PY_BASE/PythonResource?name=denied" -H "Authorization: $NON_ADMIN_ID_TOKEN"
-        run_curl_with_status NODE_RBAC_DENY_STATUS "$API_NODE_BASE/NodeResource?name=denied" -H "Authorization: $NON_ADMIN_ID_TOKEN"
-        assert_status "Python RBAC deny" "403" "$PY_RBAC_DENY_STATUS"
-        assert_status "Node RBAC deny" "403" "$NODE_RBAC_DENY_STATUS"
+    if [[ -n "$NON_ADMIN_ACCESS_TOKEN" ]]; then
+        echo "Scope/RBAC deny test with non-admin access token (expected: 403)"
+        run_curl_with_status PY_RBAC_DENY_STATUS "$API_PY_BASE/PythonResource?name=denied" -H "Authorization: $NON_ADMIN_ACCESS_TOKEN"
+        run_curl_with_status NODE_RBAC_DENY_STATUS "$API_NODE_BASE/NodeResource?name=denied" -H "Authorization: $NON_ADMIN_ACCESS_TOKEN"
+        assert_status "Python non-admin scope/RBAC deny" "403" "$PY_RBAC_DENY_STATUS"
+        assert_status "Node non-admin scope/RBAC deny" "403" "$NODE_RBAC_DENY_STATUS"
         if [[ -n "${NON_ADMIN_ID_TOKEN_TRACKING_ID:-}" ]]; then
             echo "Marking the registered non-admin Cognito JWT as used..."
             aws lambda invoke \
@@ -243,19 +250,19 @@ if [[ -n "${VALID_ID_TOKEN:-}" ]]; then
                 update-non-admin-token-response.json
         fi
     else
-        echo "Skipping RBAC deny test. Set NON_ADMIN_ID_TOKEN to run explicit non-admin checks."
-        skip_check "Python RBAC deny"
-        skip_check "Node RBAC deny"
+        echo "Skipping scope/RBAC deny test. Set NON_ADMIN_ACCESS_TOKEN to run explicit non-admin checks."
+        skip_check "Python non-admin scope/RBAC deny"
+        skip_check "Node non-admin scope/RBAC deny"
     fi
 
     echo "WAF strict XSS block test - expected: 403 / WAF_BLOCK"
     run_curl_with_status PY_WAF_XSS_STATUS \
         "$API_PY_BASE/PythonResource?name=%3Cscript%3Ealert(1)%3C%2Fscript%3E" \
-        -H "Authorization: $VALID_ID_TOKEN"
+        -H "Authorization: $VALID_ACCESS_TOKEN"
 
     run_curl_with_status NODE_WAF_XSS_STATUS \
         "$API_NODE_BASE/NodeResource?name=%3Cscript%3Ealert(1)%3C%2Fscript%3E" \
-        -H "Authorization: $VALID_ID_TOKEN"
+        -H "Authorization: $VALID_ACCESS_TOKEN"
 
     assert_status "Python WAF strict XSS" "403" "$PY_WAF_XSS_STATUS"
     assert_status "Node WAF strict XSS" "403" "$NODE_WAF_XSS_STATUS"
@@ -263,11 +270,11 @@ if [[ -n "${VALID_ID_TOKEN:-}" ]]; then
     echo "WAF strict SQLi block test - expected: 403 / WAF_BLOCK"
     run_curl_with_status PY_WAF_SQLI_STATUS \
         "$API_PY_BASE/PythonResource?name=taaops%27%20OR%20%271%27%3D%271" \
-        -H "Authorization: $VALID_ID_TOKEN"
+        -H "Authorization: $VALID_ACCESS_TOKEN"
 
     run_curl_with_status NODE_WAF_SQLI_STATUS \
         "$API_NODE_BASE/NodeResource?name=taaops%27%20OR%20%271%27%3D%271" \
-        -H "Authorization: $VALID_ID_TOKEN"
+        -H "Authorization: $VALID_ACCESS_TOKEN"
 
     assert_status "Python WAF SQLi" "403" "$PY_WAF_SQLI_STATUS"
     assert_status "Node WAF SQLi" "403" "$NODE_WAF_SQLI_STATUS"
