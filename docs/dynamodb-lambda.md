@@ -754,12 +754,13 @@ key attributes and non-key attributes
 
 NOTES:
 - Keys/indexes are for lookup patterns
-- `used`: Sohuld not be part of the key schema- treat as a regular item field for business state and filtering - it is metadata for (BOOL) - `used` is persisted on the token record and can be read later
 - Key attributes support only scalar key types (S, N, B) and must be stable query keys
 - GSI: key_schema is only for table primary key and GSI keys.
 - Keys/indexes model access patterns, not mutable flags
 
-Your Lambda writes and reads stay consistent with DynamoDB schema constraints
+- `used`: Should not be part of the key schema - treat as a regular item field for business state and filtering - it is metadata for (BOOL). It is is persisted on the token record and can be read from there. 
+
+Lambda writes and reads must stay consistent with DynamoDB schema constraints
 - Use indexes on:
     - `status`,
     - username,
@@ -774,9 +775,9 @@ Query combinations:
 - username + expires_at index: user-focused token timelines
 - expires_at: query time windows/sort by expiry
 
-Global Tables are a DynamoDB multi-Region replication feature. They allow reads and writes in multiple Regions and replicate data asynchronously between replica tables.
+Global Tables are a DynamoDB multi-Region replication feature. They allow reads and writes in Multiple Regions and replicate data asynchronously between replica tables.
 
-Use Global Tables when the application needs multi-Region resiliency or lower-latency local reads/writes. They are not required for this single-Region lab.
+Use Global Tables when the application needs multi-Region resiliency or lower-latency local reads/writes. They are not required for Single Regions.
 
 Important characteristics:
 
@@ -785,13 +786,75 @@ Important characteristics:
 - Simultaneous writes to the same item in different Regions use last-writer-wins conflict resolution.
 - Cross-Region replication adds cost for replicated writes, storage, and data transfer.
 
+### DynamoDB Schema and Read Consistency in This Project
+
+This project uses DynamoDB in a way that combines key-based lookups and non-key metadata filtering.
+
+- Key/index attributes must be consistent with table/index definitions:
+    - `token_id`, `token_hash`, `status`, `username`, and `expires_at` are key/index attributes and must keep stable names and compatible scalar types where indexed.
+    - Lambda writes to these fields must match the table and GSI key definitions.
+- Non-key attributes are flexible:
+    - `used` is intentionally a non-key metadata field (`BOOL`) and is safe to write/read as a normal item attribute.
+    - Do not put mutable state flags like `used` into `key_schema`.
+
+Read consistency notes for this configuration:
+
+- Base table reads (`GetItem`/`Query` on table primary key) can be strongly consistent in a single Region when requested.
+- GSI reads are eventually consistent only.
+- Because detector and reporting flows use GSIs (for example `status-expiry-index` and `token-hash-index`), a recent write may take a short time to appear in index query results.
+- This is expected behavior and should be considered in workflows that read immediately after writes.
+
+### Important Considerations for GSI:
+Where GSIs help:
+
+1. Access-pattern queries:
+    1. by user + time window
+    2. by token hash
+    3. by status + expiry
+
+2. Operational reporting:
+    1. “show active tokens for user X”
+    2. “find tokens expiring soon”
+
+3. Scale:
+    1. high read throughput on alternate keys without changing PK
+
+***Limits you must account for:***
+
+1. GSI reads are eventually consistent only.
+2. Index propagation is asynchronous (small lag after writes).
+3. Not a ledger:
+    1. no immutability guarantees
+    2. no cryptographic chaining
+    3. no native non-repudiation semantics
+
+***For financial-grade tracking, combine:***
+1. DynamoDB base table as source of truth for current state.
+2. GSIs for query/access views.
+3. Append-only audit stream:
+    1. DynamoDB Streams -> immutable store (S3 Object Lock / QLDB / blockchain layer).
+4. Idempotency keys + conditional writes for correctness.
+5. Signed event records and strict time-ordering controls.
+
+***For blockchain-style tracking:***
+
+1. GSIs are good for indexing wallet/user/token activity views.
+2. They are not a substitute for on-chain verification or append-only consensus records.
+
+***Practical design rule:***
+1. Use GSIs for “find and analyze”.
+2. Use immutable event logs/ledger for “prove and audit”.
+
+
 References:
 - [DynamoDB Global Tables](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GlobalTables.html)
 - [DynamoDB GSIs](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GSI.html)
 - [DynamoDB Schemaless](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/SQLtoNoSQL.CreateTable.html)
+- [DynamoDB Table Constraints](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Constraints.html)
 
-### Querying DynamoDB"
 
+### Querying DynamoDB
+[DynamoDB Table Read Consistency](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.ReadConsistency.html)
 
 Query the GSI by key then apply `used` as the filter:
 ```python
