@@ -1,25 +1,15 @@
+/********************
+RBAC Flow:
+1. User authenticates with Cognito.
+2. Cognito issues an access token with scopes like rbac-api/admin or rbac-api/user.
+3. API Gateway Cognito authorizer validates the token.
+4. API Gateway checks authorization_scopes.
+5. Only then does Lambda run.
+6. Lambda optionally checks cognito:groups for Layer 2 defense/application logic.
+**********************/
 # https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/api_gateway_resource
 
 # https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/api_gateway_rest_api
-
-data "terraform_remote_state" "cognito" {
-  count   = var.cognito_state_enabled && var.cognito_state_bucket != "" && var.cognito_state_key != "" ? 1 : 0
-  backend = "s3"
-
-  config = {
-    bucket = var.cognito_state_bucket
-    key    = var.cognito_state_key
-    region = var.cognito_state_region
-  }
-}
-
-locals {
-  cognito_user_pool_arn = var.cognito_user_pool_arn != "" ? var.cognito_user_pool_arn : (
-    aws_cognito_user_pool.cognito_rbac_pool.arn != "" ? aws_cognito_user_pool.cognito_rbac_pool.arn : (
-      length(data.terraform_remote_state.cognito) > 0 ? lookup(data.terraform_remote_state.cognito[0].outputs, var.cognito_state_output_name, "") : ""
-    )
-  )
-}
 
 
 # Authorizer method:
@@ -31,7 +21,7 @@ resource "aws_api_gateway_authorizer" "python_cognito" {
 
   type = "COGNITO_USER_POOLS"
   provider_arns = [
-    local.cognito_user_pool_arn
+    aws_cognito_user_pool.cognito_rbac_pool.arn
   ]
 
   identity_source = "method.request.header.Authorization"
@@ -43,7 +33,7 @@ resource "aws_api_gateway_authorizer" "node_cognito" {
 
   type = "COGNITO_USER_POOLS"
   provider_arns = [
-    local.cognito_user_pool_arn
+    aws_cognito_user_pool.cognito_rbac_pool.arn
   ]
 
   identity_source = "method.request.header.Authorization"

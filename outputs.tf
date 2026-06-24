@@ -75,18 +75,18 @@ output "cognito_admin_user_pool_id" {
 }
 
 output "cognito_user_pool_id" {
-  value       = aws_cognito_user_pool.cognito_user_pool.id
+  value       = aws_cognito_user_pool.cognito_rbac_pool.id
   description = "Cognito user pool ID"
+}
+
+output "cognito_user_pool_client_id" {
+  value       = aws_cognito_user_pool_client.cognito_rbac_pool_client.id
+  description = "Default Cognito app client ID for RBAC admin/user testing"
 }
 
 output "cognito_admin_user_pool_client_id" {
   value       = aws_cognito_user_pool_client.cognito_rbac_pool_client.id
-  description = "Cognito admin app client ID"
-}
-
-output "cognito_user_pool_client_id" {
-  value       = aws_cognito_user_pool_client.cognito_user_pool_client.id
-  description = "Cognito user app client ID"
+  description = "Cognito app client ID allowed to request admin and user scopes"
 }
 
 output "cognito_admin_issuer_url" {

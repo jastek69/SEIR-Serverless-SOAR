@@ -251,13 +251,10 @@ resource "aws_lambda_function" "verify_groups" {
 
   environment {
     variables = {
-      COGNITO_USER_POOL_ID = var.cognito_user_pool_id != "" ? var.cognito_user_pool_id : aws_cognito_user_pool.cognito_user_pool.id
+      COGNITO_USER_POOL_ID = var.cognito_user_pool_id != "" ? var.cognito_user_pool_id : aws_cognito_user_pool.cognito_rbac_pool.id
     }
   }
 }
-
-
-
 
 
 
@@ -440,6 +437,7 @@ resource "aws_lambda_function" "immediate_revoke_66" {
     }
   }
 }
+
 
 
 

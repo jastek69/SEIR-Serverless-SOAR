@@ -1,6 +1,6 @@
 ☁️ Class 7 Armageddon - Brotherhood of Evil jerMutants - Wolfpack
 
-![Blackneto.jpg](/images/jasweeno2.jpg "sebekgo logo")
+![shallnotpass.jpg](/images/RBAC-shallnotpass.jpg "sebekgo logo")
 
 ![Static Badge](https://img.shields.io/badge/IaC-Terraform-orange)![lambda](https://img.shields.io/badge/Serverless-lambda-orange)![{Cognito}](https://img.shields.io/badge/RBAC%2FJWT-Cognito-blue)![API Gateway](https://img.shields.io/badge/RestAPIs-API%20Gateway-red)![Static Badge](https://img.shields.io/badge/Real%20Time%20Logging-AWS%20WAFV2-red)![Static Badge](https://img.shields.io/badge/AutoIR-BedRock-green)![Static Badge](https://img.shields.io/badge/Observability-CloudWatch%26BedRock-green)![Static Badge](https://img.shields.io/badge/SOAR-Bedrock-green)
 
@@ -21,7 +21,7 @@ Refer to the `/docs` folder for detailed explanations and walkthrough instructio
 - rbac-test.md for how to configure and run this repo using the bash and python scripts:
   - `mfa_bootstrap.py` - Detailed instructions for using the mfa_boostrap.py to configure Cognito and prepare for testing
     - `rbac_test.sh` - for testing the configuration and generating logs and Bedrock SOAR
-- dynamo-db.md - detailed information on DynamoDB tables with lambda integration
+- docs/dynamodb-lambda.md - detailed information on DynamoDB token/session tracking with Lambda integration
 - cognito_walkthru.md - Cognito AWS console walkthru
 - jwt.md - Cognito OAuth JWT wtih API Gateway details
 - lambda-walkthru - lambda AWS console instructions
@@ -664,7 +664,7 @@ It handles:
     User management (accounts, groups)
     Token generation (JWTs) for APIs
 
-<https://aws.amazon.com/pm/cognito/?trk=36e1404e-1051-48b6-9dd0-51db40b9c756&sc_channel=ps&ef_id=CjwKCAjwqubPBhBOEiwAzgZX2nhsEiOHEJQVaqlAYrksnh6lOFWjvE4VxyRyQ3izPOoltgjOxDh6mBoCOngQAvD_BwE:G:s&s_kwcid=AL!4422!3!795794010901!p!!g!!cognito!23527793912!187898877050&gad_campaignid=23527793912&gbraid=0AAAAADjHtp8JXL4yKgorV0cpJGxLu-Nuy&gclid=CjwKCAjwqubPBhBOEiwAzgZX2nhsEiOHEJQVaqlAYrksnh6lOFWjvE4VxyRyQ3izPOoltgjOxDh6mBoCOngQAvD_BwE>
+[Cognito IAM](https://aws.amazon.com/pm/cognito/?trk=36e1404e-1051-48b6-9dd0-51db40b9c756&sc_channel=ps&ef_id=CjwKCAjwqubPBhBOEiwAzgZX2nhsEiOHEJQVaqlAYrksnh6lOFWjvE4VxyRyQ3izPOoltgjOxDh6mBoCOngQAvD_BwE:G:s&s_kwcid=AL!4422!3!795794010901!p!!g!!cognito!23527793912!187898877050&gad_campaignid=23527793912&gbraid=0AAAAADjHtp8JXL4yKgorV0cpJGxLu-Nuy&gclid=CjwKCAjwqubPBhBOEiwAzgZX2nhsEiOHEJQVaqlAYrksnh6lOFWjvE4VxyRyQ3izPOoltgjOxDh6mBoCOngQAvD_BwE)
 
 Purpose of Cognito in This Lab
 
@@ -1423,10 +1423,10 @@ RBAC means Role-Based Access Control. The core idea is simple:
 User -> Role or Group -> Permissions -> Resource
 ```
 
-In this lab, Cognito authenticates the user, API Gateway validates the token, and Lambda enforces the admin/non-admin authorization decision.
+In this lab, Cognito authenticates the user, API Gateway performs the first authorization gate with Cognito OAuth scopes, and Lambda performs the final admin/non-admin RBAC decision from Cognito group claims.
 
 ```text
-Client -> AWS WAF -> API Gateway Cognito Authorizer -> Lambda RBAC logic -> DynamoDB audit/tracking
+Client -> AWS WAF -> API Gateway Cognito Authorizer + Scope Check -> Lambda RBAC logic -> DynamoDB audit/tracking
 ```
 
 Authentication and authorization are related, but they are not the same:
@@ -1435,29 +1435,30 @@ Authentication and authorization are related, but they are not the same:
 | ----- | -------------- | -------------------- |
 | AWS WAF | Filters malicious HTTP traffic before API Gateway | Blocks payloads such as XSS/SQLi when rules match |
 | Cognito User Pool | Authenticates the user and issues JWTs | Issues ID/access/refresh tokens after login and MFA |
-| API Gateway Cognito Authorizer | Validates the JWT | Confirms the token is valid for the configured user pool |
-| Lambda | Enforces RBAC | Reads Cognito claims/groups and allows or denies the request |
+| API Gateway Cognito Authorizer | Validates the JWT and required OAuth scope | Requires a valid access token with `rbac-api/admin` |
+| Lambda | Enforces final RBAC | Reads Cognito claims/groups and allows or denies the request |
 | DynamoDB | Tracks token/session metadata | Stores token hash, status, timestamps, revocation/audit metadata |
 
-#### Current Design: Lambda-Enforced RBAC
+#### Current Design: Layered Cognito Scope + Lambda RBAC
 
-The current Terraform methods use a Cognito user pool authorizer without `authorization_scopes`:
+The current Terraform methods use a Cognito user pool authorizer with `authorization_scopes`:
 
 ```hcl
-authorization = "COGNITO_USER_POOLS"
-authorizer_id = aws_api_gateway_authorizer.python_cognito.id
+authorization        = "COGNITO_USER_POOLS"
+authorizer_id        = aws_api_gateway_authorizer.python_cognito.id
+authorization_scopes = ["rbac-api/admin"]
 ```
 
-That means API Gateway acts as the authentication gate. It verifies that the caller supplied a valid Cognito JWT. After that, Lambda receives the request and performs the RBAC decision from token claims.
+That means API Gateway acts as a coarse authorization gate. It verifies that the caller supplied a valid Cognito access token containing the required `rbac-api/admin` scope. After that, Lambda receives the request and performs the final RBAC decision from Cognito group claims.
 
-In this design, the API is commonly tested with the Cognito ID token:
+In this design, API calls are tested with the Cognito access token:
 
 ```bash
 curl "$API_PY_BASE/PythonResource?name=Norrin" \
-  -H "Authorization: $ID_TOKEN"
+  -H "Authorization: $ACCESS_TOKEN"
 ```
 
-The Lambda handler reads the Cognito claims passed by API Gateway:
+The Lambda handler still reads Cognito claims passed by API Gateway:
 
 ```python
 claims = event.get("requestContext", {}).get("authorizer", {}).get("claims", {})
@@ -1472,38 +1473,79 @@ if "admin" not in groups:
 
 This produces the expected lab behavior:
 
-| Caller | Token Valid? | Group Claim | Result |
-| ------ | ------------ | ----------- | ------ |
-| No token | No | None | `401 Unauthorized` |
-| Non-admin user | Yes | `user` | `403 Forbidden` |
-| Admin user | Yes | `admin` | `200 OK` |
+| Caller | Access Token Scope | Group Claim | Result |
+| ------ | ------------------ | ----------- | ------ |
+| No token | None | None | `401 Unauthorized` |
+| Non-admin user | Missing `rbac-api/admin` | `user` | `403 Forbidden` at API Gateway |
+| Admin user | Has `rbac-api/admin` | `admin` | `200 OK` |
+| Scoped token but non-admin group | Has required scope | Not `admin` | `403 Forbidden` at Lambda |
 
-#### Alternative Design: API Gateway-Enforced Scopes
+#### Cognito Resource Server and Scopes
 
-API Gateway can also enforce authorization before Lambda runs, but that is a different design. In that model, the method uses `authorization_scopes` and the client must call the API with a Cognito access token that contains the required OAuth scope.
+https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html
 
-Example:
+https://docs.aws.amazon.com/cognito/latest/developerguide/federation-endpoints-oauth-grants.html
+https://aws.amazon.com/blogs/security/how-to-use-oauth-2-0-in-amazon-cognito-learn-about-the-different-oauth-2-0-grants/
+
+
+
+The Cognito resource server defines API-level scopes:
 
 ```hcl
-resource "aws_api_gateway_method" "PythonMethod" {
-  rest_api_id   = aws_api_gateway_rest_api.PythonAPI.id
-  resource_id   = aws_api_gateway_resource.PythonResource.id
-  http_method   = "GET"
+resource "aws_cognito_resource_server" "rbac_api_resource_server" {
+  identifier = "rbac-api"
+  name       = "RBAC REST API"
 
-  authorization        = "COGNITO_USER_POOLS"
-  authorizer_id        = aws_api_gateway_authorizer.python_cognito.id
-  authorization_scopes = ["soar-api/admin"]
+  scope {
+    scope_name        = "admin"
+    scope_description = "Admin access to protected RBAC API methods"
+  }
+
+  scope {
+    scope_name        = "user"
+    scope_description = "User access to protected RBAC API methods"
+  }
+
+  user_pool_id = aws_cognito_user_pool.cognito_rbac_pool.id
 }
 ```
 
-For that to work, Cognito must be configured with:
+The RBAC app client can request both scopes:
 
-- A resource server, for example `soar-api`
-- Custom scopes, for example `admin` or `read`
-- An app client that is allowed to request those scopes
-- An OAuth flow that returns an access token containing the requested scope
+```hcl
+allowed_oauth_flows_user_pool_client = true
+allowed_oauth_flows                  = ["code"]
+allowed_oauth_scopes = [
+  "openid",
+  "email",
+  "profile",
+  "rbac-api/admin",
+  "rbac-api/user"
+]
+```
 
-Then API Gateway checks the access token's `scope` claim. If the required scope is missing, API Gateway rejects the request and Lambda is not invoked.
+The user app client is limited to the user scope:
+
+```hcl
+allowed_oauth_scopes = [
+  "openid",
+  "email",
+  "profile",
+  "rbac-api/user"
+]
+```
+
+Both app clients point to the same RBAC user pool. Users are separated by Cognito group membership:
+
+```text
+admin.test -> group: admin
+user.test  -> group: user
+```
+
+This keeps the responsibilities separate:
+
+- API Gateway checks API-level permission with access-token scopes.
+- Lambda checks application-level RBAC with Cognito group claims.
 
 #### ID Tokens vs Access Tokens
 
@@ -1511,6 +1553,28 @@ Then API Gateway checks the access token's `scope` claim. If the required scope 
 | ----- | ------------ | -------- |
 | ID token | Proves who the signed-in user is | Claim/group based RBAC in Lambda |
 | Access token | Proves what the caller is allowed to access | API Gateway scope authorization |
+
+The test playbook exports both token types:
+
+```bash
+source Reports/admin_tokens.env
+source Reports/non_admin_tokens.env
+
+echo "${#ID_TOKEN}"
+echo "${#ACCESS_TOKEN}"
+echo "${#NON_ADMIN_ID_TOKEN}"
+echo "${#NON_ADMIN_ACCESS_TOKEN}"
+```
+
+Manual API tests should use access tokens:
+
+```bash
+curl -i "$API_PY_BASE/PythonResource?name=theo" \
+  -H "Authorization: $ACCESS_TOKEN"
+
+curl -i "$API_PY_BASE/PythonResource?name=denied" \
+  -H "Authorization: $NON_ADMIN_ACCESS_TOKEN"
+```
 
 AWS documents the split this way: ID tokens authorize API calls based on identity claims, while access tokens authorize API calls based on custom scopes for protected resources.
 
@@ -1553,13 +1617,15 @@ For immediate revocation, use one or more of these controls:
 - Refresh-token revocation
 - DynamoDB-backed denylist checks for sensitive operations
 
+Detailed implementation notes are in [docs/dynamodb-lambda.md](docs/dynamodb-lambda.md).
+
 ### Create: - lessonf walkthru
 
 - DynamoDB
 - lambda functions:
   - get_token.py
   - update_token.py
-  - unused-token-detector.py - locate unused tokens
+  - unused_token_detector.py - locate unused tokens
   - EventBridge schedule use the unused token for it as the target
   - revoke-token.py - BONUS
 - Event Bridge - attach lambda as the target - auto generatate the execution role
@@ -1594,8 +1660,8 @@ expires_at: Unix epoch seconds for denylist TTL
 revoked_at_iso
 reason
 
-***CORE FUNADEMENTAL SECURITY PRINCIPAL:***
-refer to DynamoDB lambda workflow
+***CORE FUNDAMENTAL SECURITY PRINCIPLE:***
+refer to [docs/dynamodb-lambda.md](docs/dynamodb-lambda.md)
 
 this is the core of making the token system secure and auditable.
 
@@ -1603,12 +1669,12 @@ How It Works
 
 When a token is issued, you write one record to tracking table and optionally one record to revocation table only when revoked.
 You never store the raw token in DynamoDB, only token_hash.
-You validate by hashing the incoming token and checking:
+DynamoDB can support revocation/session-state checks by hashing the incoming token and checking:
 revocation table first (fast denylist check)
 tracking table status and expiry
 expires_at is Unix epoch seconds so DynamoDB TTL can auto-delete old records.
 Write Path (Issue Token)
-Use this in get_token.py.
+Use this in `easier_get_token.py` or the token-issuing Lambda path.
 
 Generate token_id as UUID.
 Hash the token with SHA-256.
@@ -1654,8 +1720,8 @@ expires_at = 1780867200
 revoked_at_iso = 2026-06-07T20:22:10Z
 reason = manual_revoke
 
-Read Path (Validate Token)
-This logic can live in python_lambda.py and node_lambda.js, or a shared authorizer Lambda.
+Optional Read Path (Revocation/Session-State Check)
+This logic can live in `python_lambda.py` and `node_lambda.js`, or a shared authorizer Lambda.
 
 Extract token from Authorization header.
 Hash token to token_hash.
@@ -1701,7 +1767,6 @@ expires_at = current_utc_epoch + token_lifetime_seconds
 If token life is 15 minutes:
 expires_at = now + 900
 
-TODO:
 
 ## Security - Monitoring – logs, metrics, alerting
 
@@ -1718,101 +1783,12 @@ JWT signing keys
 OAuth client secrets
 
 Example events worth recording:
+```
 token-tracking
-
-### Create DynamoDB
-
-courtesy: kakakakakku
-
-This pattern creates an Amazon API Gateway REST API that integrates with an Amazon DynamoDB table.
-
-Learn more about this pattern at Serverless Land Patterns: <http://serverlessland.com/patterns/apigw-dynamodb-terraform>
-
-Important: this application uses various AWS services and there are costs associated with these services after the Free Tier usage - please see the AWS Pricing page for details. You are responsible for any AWS costs incurred. No warranty is implied in this example.
-
-This pattern creates an Amazon API Gateway REST API that integrates with an Amazon DynamoDB table named "Pets". The API includes an API key and usage plan. The DynamoDB table includes a Global Secondary Index named "PetsType-index". The API integrates directly with the DynamoDB API and supports PutItem and Query actions.
-
-## Testing
-
-Once the application is deployed, you can test it using the following instructions.
-
-1. The terraform outout included two things:
- - The url to the deployed API.
- - The Key to use with the deployed API.
-1. To invoke the DynamoDB **PutItem** action to add a new item to the DynamoDB table:
- - Run the below command after you replace <KEY> and <URL> with the terraform output from earlier.
- ```
- curl -H 'x-api-key: <KEY>' -H 'Content-Type: application/json' --request POST '<URL>' --data-raw '{ "PetType": "dog", "PetName": "tito", "PetPrice": 250 }'
-
- ```
-
-	- Repeate the process as many times as you can, try doing it with different Pet Types
-1. Invoke the DynamoDB **Query** action to query items by PetType in the DynamoDB table:
- - Run the below command after you replace <KEY> and <URL> with the terraform output from earlier. Append the PetType to the URL (e.g. `/dog`).
- ```
- curl -H 'x-api-key: <KEY>' --request GET '<URL>/dog'
- ```
-
-	- Repeate the process as many times as you can with different Pet Types
- - You should receive a "200 OK" response with a list of the matching results. Example:
- ```
- {
-  "pets": [
-   {
-    "id": "45b33352-fea0-4e8b-8c7a-6be11ec4ff80",
-    "PetType": "dog",
-    "PetName": "tito",
-                "PetPrice": "250"
-   }
-  ]
- }
- ```
-
-## Cleanup
-
-1. Change directory to the pattern directory:
-
-    ```
-    cd serverless-patterns/apigw-dynamodb-terraform
-    ```
-
-1. Delete all created resources
-
-    ```bash
-    terraform destroy
-    ```
-
-1. During the prompts:
-    - Enter yes
-1. Confirm all created resources has been deleted
-
-    ```bash
-    terraform show
-    ```
-
-----
-
-## Create Event Bridge
-
-courtesy: apopa57
-
-[EventBridge + lambda](https://github.com/aws-samples/serverless-patterns/tree/main/lambda-eventbridge-terraform)
-
-This pattern deploys an API Gateway HTTP API with a custom domain configuration and permissions to publish HTTP requests as events to EventBridge.
-
-Learn more about this pattern at Serverless Land Patterns: [https://serverlessland.com/patterns/apigateway-http-eventbridge-custom](https://serverlessland.com/patterns/apigateway-http-eventbridge-custom)
-
-Important: this application uses various AWS services and there are costs associated with these services after the Free Tier usage - please see the [AWS Pricing page](https://aws.amazon.com/pricing/) for details.
+```
 
 
-## Additional resources
-
-- [Amazon API Gateway V2](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/AWS_ApiGatewayV2.html)
-- [Amazon EventBridge](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/AWS_Events.html)
-
----
-
-### Navigation
+Navigation
 
     DynamoDB
     Create Table
@@ -2189,6 +2165,33 @@ Current lab already has:
 | WAF         | edge protection   |
 | CloudWatch  | telemetry         |
 
+DynamoDB provides the evidence context for unused-token SOAR reporting. It does not store the SOAR report itself. The detector reads token/session records from `token-tracking`, converts stale unused records into findings, sends those findings to Bedrock for analysis, and writes the final report artifacts to S3.
+
+| DynamoDB Field / Detector Value | SOAR Reporting Use |
+| ------------------------------- | ------------------ |
+| `token_id` | Identifies the tracked token/session event without exposing the raw JWT |
+| `username` | Shows which user/account the tracked token was issued for |
+| `issued_at_iso` | Provides the human-readable issue time used to calculate token age |
+| `age_minutes` | Calculated by `unused_token_detector.py` from `issued_at_iso`; shows how long the token has remained unused |
+| `status` | Indicates whether the tracking record is active; the detector accepts lowercase `status` and legacy uppercase `Status` |
+| `used` | Indicates whether the token/session was used; stale findings require `used = false` |
+| `token_kind` | Identifies the type/source of tracked record, such as `cognito-id-token`, `synthetic-tracking-token`, or `legacy-or-unknown` |
+| `records_examined` | Count of DynamoDB records scanned during the detector run |
+| `matched` | Count of records matching the active/unused scan filter |
+| `alerted` | Count of findings published as unused-token alerts |
+| `trigger_source` | Shows whether the scan was scheduled, manual, or otherwise triggered |
+| `reason` | Explains why the SOAR run was invoked, such as manual review or unused-token threshold scan |
+
+SOAR flow:
+
+```text
+token-tracking records
+  -> unused_token_detector.py scans active unused records
+  -> stale records become findings
+  -> Bedrock generates analysis from the findings
+  -> S3 stores Markdown and JSON evidence artifacts
+```
+
 So you have
 
         multiple AWS services cooperating
@@ -2415,230 +2418,289 @@ SOAR_GENERATE_ON_EMPTY=true -> soar_generated=true and files are uploaded
 SOAR_GENERATE_ON_EMPTY=false -> soar_generated=false and no SOAR files uploaded
 ```
 
-credit: kakakakakku
 
-# Amazon API Gateway HTTP API to Amazon EventBridge
+# IAM Roles and Policies - Least Privilege Design
 
-This pattern creates an HTTP API endpoint that directly integrates with Amazon EventBridge
+The IAM design follows least privilege:
 
-Learn more about this pattern at Serverless Land Patterns: <https://serverlessland.com/patterns/apigateway-http-eventbridge-terraform>
+```text
+Give each service only the permissions required for its specific job.
+```
 
-Important: this application uses various AWS services and there are costs associated with these services after the Free Tier usage - please see the [AWS Pricing page](https://aws.amazon.com/pricing/) for details. You are responsible for any AWS costs incurred. No warranty is implied in this example.
+AWS IAM controls which services can perform actions on AWS resources. In this project, IAM is implemented through:
+- Roles
+- Identity-based policies
+- Resource-based policies
 
-## Requirements
+Examples:
+- API Lambdas should not have broad S3 write access unless needed.
+- The unused-token detector should only scan the token table and write reports where required.
+- Bedrock invocation should be limited to the Lambda that generates SOAR reports.
+- DynamoDB permissions should target specific table ARNs, not all tables.
 
-- [Create an AWS account](https://portal.aws.amazon.com/gp/aws/developer/registration/index.html) if you do not already have one and log in. The IAM user that you use must have sufficient permissions to make necessary AWS service calls and manage AWS resources.
-- [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html) installed and configured
-- [Git Installed](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
-- [Terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli?in=terraform/aws-get-started) installed
 
-## Deployment Instructions
+## IAM Role
+An IAM role is an AWS identity that a service can assume temporarily. Instead of embedding long-term credentials in code, services such as Lambda use execution roles.
 
-1. Create a new directory, navigate to that directory in a terminal and clone the GitHub repository:
-
-    ```
-    git clone https://github.com/aws-samples/serverless-patterns
-    ```
-
-1. Change directory to the pattern directory:
-
-    ```
-    cd serverless-patterns/apigw-http-eventbridge-terraform
-    ```
-
-1. From the command line, initialize terraform to  to downloads and installs the providers defined in the configuration:
-
-    ```
-    terraform init
-    ```
-
-1. From the command line, apply the configuration in the main.tf file:
-
-    ```
-    terraform apply
-    ```
-
-1. During the prompts:
-    - Enter yes
-1. Note the outputs from the deployment process. These contain the resource names and/or ARNs which are used for testing.
-
-## How it works
-
-This pattern creates an Amazon API gateway HTTP API endpoint. The endpoint uses service integrations to directly connect to Amazon EventBridge.
-
-## Testing
-
-To test the endpoint first send data using the following command. Be sure to update the endpoint with endpoint of your stack.
+***Lambda***
+In this configuration, Lambda functions do not store AWS access keys. They receive temporary permissions through their assigned IAM execution roles.
 
 ```
-curl --location --request POST '<your api endpoint>' --header 'Content-Type: application/json' \
---data-raw '{
-    "Detail":{
-        "message": "Hello From API Gateway"
+Lambda Function
+  -> assumes IAM execution role
+  -> receives temporary AWS credentials
+  -> performs allowed AWS actions
+  ```
+
+### IAM Policies
+IAM policies define what actions are allowed or denied. A policy answers: 
+```
+Who can do what, on which resource?
+```
+
+Example strucure:
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "dynamodb:PutItem",
+    "dynamodb:UpdateItem",
+    "dynamodb:Scan"
+  ],
+  "Resource": "arn:aws:dynamodb:us-west-2:ACCOUNT_ID:table/token-tracking"
+}
+```
+
+## Lambda Execution Roles
+Lambda functions do not store AWS access keys. They receive temporary permissions through their assigned IAM execution roles.
+
+```
+Lambda Function
+  -> assumes IAM execution role
+  -> receives temporary AWS credentials
+  -> performs allowed AWS actions
+```
+
+### IAM Implementation in This Project
+Each Lambda function should use an IAM role that grants only the permissions it needs. Bedrock, DynamoDB, S3, CloudWatch, EventBridge, and API Gateway are connected through scoped IAM roles, policies, and resource-based permissions.
+
+Examples:
+| IAM Component | Purpose | Example Permissions |
+| --- | --- | --- |
+| Lambda execution role | Allows Lambda functions to call AWS services at runtime | `logs:PutLogEvents`, `dynamodb:PutItem`, `s3:PutObject`, `bedrock:InvokeModel` |
+| Lambda IAM policy | Defines what each Lambda execution role can do | CloudWatch logging, DynamoDB tracking/revocation, S3 report writes, Bedrock invocation |
+| API Gateway Lambda permission | Allows API Gateway to invoke Lambda | `lambda:InvokeFunction` with principal `apigateway.amazonaws.com` |
+| EventBridge Scheduler role | Allows scheduled jobs to invoke detector Lambda | `lambda:InvokeFunction` on `unused_token_detector_function` |
+| S3/Lambda permission | Allows S3 event notifications to invoke translator Lambda when configured | `lambda:InvokeFunction` with principal `s3.amazonaws.com` |
+| Bedrock permission | Allows SOAR Lambda to request model output | `bedrock:InvokeModel` |
+| DynamoDB table permissions | Allows token tracking, revocation, and unused-token scans | `dynamodb:PutItem`, `dynamodb:UpdateItem`, `dynamodb:GetItem`, `dynamodb:Scan`, `dynamodb:Query` |
+| CloudWatch Logs permissions | Allows Lambda/API workflows to write operational logs | `logs:CreateLogGroup`, `logs:CreateLogStream`, `logs:PutLogEvents` |
+
+
+Cognito controls who can call the API.
+IAM controls what AWS services can do after the request is accepted. 
+
+For example, Cognito/API Gateway authorizes the caller, while the Lambda execution role authorizes the Lambda function to write to DynamoDB, invoke Bedrock, write S3 reports, and publish logs.
+
+
+
+### CloudWatch Logging
+Lambda functions need permission to write logs:
+```
+logs:CreateLogGroup
+logs:CreateLogStream
+logs:PutLogEvents
+```
+These permissions allow Lambda runtime logs, application logs, and error traces to appear in CloudWatch.
+
+### DynamoDB Access
+Lambda DynamoDB permissions are scoped to the `token-tracking` and `token-revocation` tables.
+Typical actions include:
+```
+dynamodb:PutItem
+dynamodb:GetItem
+dynamodb:UpdateItem
+dynamodb:Scan
+dynamodb:Query
+```
+
+This supports token/session tracking, revocation checks, and unused-token detection.
+
+
+### S3 Access
+S3 permissions are used for SOAR report storage and audit artifacts.
+Typical actions include:
+```
+s3:PutObject
+s3:GetObject
+s3:ListBucket
+```
+
+The SOAR workflow writes Markdown and JSON evidence reports to the configured reports bucket.
+
+### Bedrock Access and Lambda
+The SOAR Lambda requires IAM permission to call Amazon Bedrock:
+```
+bedrock:InvokeModel
+```
+This allows the Lambda to send security-event context to the configured Bedrock model and receive the generated SOAR analysis.
+
+### API Gateway to Lambda: Resource-Based Permissions
+API Gateway does not use the Lambda execution role to invoke Lambda. Instead, Lambda has a resource-based permission allowing API Gateway to invoke it.
+
+Example concept:
+```
+Principal: apigateway.amazonaws.com
+Action: lambda:InvokeFunction
+Resource: target Lambda function
+```
+This is usually implemented with aws_lambda_permission.
+
+
+### EventBridge Scheduler Role
+EventBridge Scheduler needs permission to invoke the unused-token detector Lambda on schedule.
+```
+EventBridge Scheduler
+  -> assumes scheduler role
+  -> invokes unused_token_detector_function
+```
+
+The role should allow:
+```
+lambda:InvokeFunction
+```
+only on the dector lambda
+
+
+## Summary
+IAM provides the security foundation for service-to-service access in this project:
+
+```text
+Cognito/API Gateway = user authentication and API authorization, including Layer 1 scope enforcement
+Lambda code = Layer 2 application RBAC using Cognito group claims
+IAM roles/policies = AWS service permissions
+Lambda execution roles = runtime permissions for Lambda functions
+Resource policies = allow API Gateway/EventBridge/S3 to invoke Lambda
+```
+
+1. Cognito controls who can authenticate.
+2. API Gateway controls which scoped access tokens can call protected API methods.
+3. Lambda code decides final application-level RBAC.
+4. IAM controls what AWS services are allowed to do after the request is accepted.
+
+
+
+## The Shield - RBAC, IAM, API Gateway, WAF, and SOAR
+
+This project uses layered security controls to protect both the public API boundary and the internal AWS service boundary.
+
+- WAF filters malicious HTTP traffic before it reaches the API.
+- API Gateway and Cognito enforce Layer 1 authorization by requiring scoped Cognito access tokens.
+- Lambda enforces Layer 2 RBAC with Cognito group claims.
+- IAM roles and policies control what AWS services can do after a request is accepted.
+- DynamoDB, CloudWatch, EventBridge, Bedrock, and S3 support detection, reporting, and SOAR response workflows.
+
+
+RBAC protects API access decisions. IAM protects AWS service-to-service actions. Together, they provide external and internal protection.
+
+Layer 1 RBAC: API Gateway performs coarse authorization by requiring Cognito access-token scopes such as rbac-api/admin.
+
+Layer 2 RBAC: Lambda performs final application authorization by reading Cognito group claims such as admin or user.
+
+IAM: IAM roles and policies do not authorize end users directly. IAM authorizes AWS services, such as Lambda, EventBridge, API Gateway, S3, DynamoDB, and Bedrock, to interact with each other.
+
+
+```
+Layer 1 RBAC = API Gateway/Cognito scope enforcement
+Layer 2 RBAC = Lambda code group-claim enforcement
+IAM = service authorization, not user RBAC
+```
+
+### Layer 1 RBAC - OAuth scope-based API authorization
+This is the first authorization gate before Lambda runs.
+Implemented by:
+```
+Cognito access token
+API Gateway Cognito authorizer
+API Gateway authorization_scopes
+```
+
+Example:
+```
+authorization        = "COGNITO_USER_POOLS"
+authorizer_id        = aws_api_gateway_authorizer.python_cognito.id
+authorization_scopes = ["rbac-api/admin"]
+```
+
+### Layer 2 RBAC - Lambda authorization
+This is the second authorization gate inside your Lambda code.
+
+Implemented by:
+```
+Lambda handler
+Cognito group claims
+cognito:groups
+```
+
+Example:
+```python
+groups = claims.get("cognito:groups", "")
+
+if "admin" not in groups:
+    return {
+        "statusCode": 403,
+        "body": json.dumps({"message": "Access denied: admin group required"})
     }
-}'
 ```
 
-Then check the logs for the Lambda function from the Lambda console.
-
-## Cleanup
-
-1. Change directory to the pattern directory:
-
-    ```
-    cd serverless-patterns/apigw-http-eventbridge-terraform
-    ```
-
-1. Delete all created resources
-
-    ```bash
-    terraform destroy
-    ```
-
-1. During the prompts:
-    - Enter yes
-1. Confirm all created resources has been deleted
-
-    ```bash
-    terraform show
-    ```
-
-----
-Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-
-SPDX-License-Identifier: MIT-0
-
+Security check - What it answers:
 ```
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = ">= 4.64.0"
-    }
-  }
-}
-
-provider "aws" {
-
-}
-
-data "aws_caller_identity" "current" {}
-
-data "archive_file" "LambdaZipFile" {
-  type        = "zip"
-  source_file = "${path.module}/src/eventbridge_function.py"
-  output_path = "${path.module}/eventbridge_function.zip"
-}
-
-resource "aws_lambda_function" "eventbridge_function" {
-  function_name = "EventBridgeScheduleTargetPython"
-  filename      = data.archive_file.LambdaZipFile.output_path
-  handler       = "eventbridge_function.lambda_handler"
-  role          = aws_iam_role.iam_for_lambda.arn
-  runtime       = "python3.14"
-  memory_size   = 128
-  timeout       = 30
-}
-
-resource "aws_iam_role" "scheduler_role" {
-  name = "EventBridgeSchedulerRole"
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "scheduler.amazonaws.com"
-        }
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy" "eventbridge_invoke_policy" {
-  name = "EventBridgeInvokeLambdaPolicy"
-  role = aws_iam_role.scheduler_role.id
-  policy = jsonencode({
-    "Version" : "2012-10-17",
-    "Statement" : [
-      {
-        "Sid" : "AllowEventBridgeToInvokeLambda",
-        "Action" : [
-          "lambda:InvokeFunction"
-        ],
-        "Effect" : "Allow",
-        "Resource" : aws_lambda_function.eventbridge_function.arn
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role" "iam_for_lambda" {
-  name = "LambdaExecutionRole"
-  assume_role_policy = jsonencode({
-    "Version" : "2012-10-17",
-    "Statement" : [
-      {
-        "Action" : "sts:AssumeRole",
-        "Principal" : {
-          "Service" : "lambda.amazonaws.com"
-        },
-        "Effect" : "Allow",
-        "Sid" : ""
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy" "lambda_logs_policy" {
-  name = "PublishLogsPolicy"
-  role = aws_iam_role.iam_for_lambda.id
-  policy = jsonencode({
-    "Version" : "2012-10-17",
-    "Statement" : [
-      {
-        "Sid" : "AllowLambdaFunctionToCreateLogs",
-        "Action" : [
-          "logs:*"
-        ],
-        "Effect" : "Allow",
-        "Resource" : [
-          "arn:aws:logs:*:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${aws_lambda_function.eventbridge_function.function_name}:*"
-        ]
-      }
-    ]
-  })
-}
-
-resource "aws_scheduler_schedule" "invoke_lambda_schedule" {
-  name = "InvokeLambdaSchedule"
-  flexible_time_window {
-    mode = "OFF"
-  }
-  schedule_expression = "rate(5 minute)"
-  target {
-    arn = aws_lambda_function.eventbridge_function.arn
-    role_arn = aws_iam_role.scheduler_role.arn
-    input = jsonencode({"input": "This message was sent using EventBridge Scheduler!"})
-  }
-}
-
-output "ScheduleTargetFunction" {
-  value = aws_lambda_function.eventbridge_function.arn
-  description = "The ARN of the Lambda function being invoked from EventBridge Scheduler"
-}
-
-output "ScheduleName" {
-  value = aws_scheduler_schedule.invoke_lambda_schedule.name
-  description = "Name of the EventBridge Schedule"
-}
-
+Even if the request reached Lambda, is this user allowed to perform this application action?
 ```
+
+Example result:
+```
+Valid token reaches Lambda
+User is not in admin group
+Lambda returns 403
+```
+
+### IAM - what can a Service do
+IAM is service-to-service authorization.
+Examples:
+```
+Can Lambda write to DynamoDB?
+Can Lambda invoke Bedrock?
+Can EventBridge invoke Lambda?
+Can API Gateway invoke Lambda?
+```
+
+# EventBridge
+
+
 
 # GLOSSARY
 
 ### DynamoDB Global Tables
+
+DynamoDB Global Tables are a multi-Region replication feature. They allow applications to read and write in multiple Regions while DynamoDB asynchronously replicates items between replica tables.
+
+Use Global Tables when an application needs multi-Region resiliency or lower-latency local reads/writes. They are not required for this single-Region.
+
+Important characteristics:
+
+- Replication is asynchronous, so replicated reads are eventually consistent.
+- Strongly consistent reads are only available against the local Region replica.
+- Simultaneous writes to the same item in different Regions use last-writer-wins conflict resolution.
+- Cross-Region replication adds cost for replicated writes, storage, and data transfer.
+
+References:
+
+- [DynamoDB Global Tables](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GlobalTables.html)
+- [DynamoDB GSIs](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GSI.html)
+- [DynamoDB Naming](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.NamingRulesDataTypes.html)
+
+Legacy notes:
 
 [textDynamoDB - GSI](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/gsi-throttling.html)
 [Using GSI](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GSI.html)
@@ -2656,12 +2718,15 @@ From a cost perspective, you pay the usual DynamoDB prices for read capacity and
 
 # EventBridge
 
+
+Triggers the detector Lambda -> EventBridge invokes unused_token_detector every 5 minutes (or required timing) -> `unused_token_detector` scans DynamoDB for issued-but-unused tokens
+
 ## Event Targets
 
 [EventBridge patterns](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-event-patterns.html)
 [Pattern Syntax](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-create-pattern.html)
 
-[impute template - reformatter](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-transform-target-input.html)
+[input template - reformatter](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-transform-target-input.html)
 [Policy Document](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-use-resource-based.html)
 
 To specify which events to send to a target, you create an event pattern. An event pattern defines the data EventBridge uses to determine whether to send the event to the target. If the event pattern matches the event, EventBridge sends the event to the target. Event patterns have the same structure as the events they match. An event pattern either matches an event or it doesn't.

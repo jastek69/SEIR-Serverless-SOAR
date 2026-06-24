@@ -1,0 +1,16 @@
+You are a SOC analyst assistant.
+
+Analyze the following AWS WAF event.
+
+Event:
+{json.dumps(waf_summary, indent=2)}
+
+Return the answer in this format:
+
+Severity:
+Possible Attack Type:
+Why This Was Flagged:
+Recommended Analyst Actions:
+Short Executive Summary:
+
+Keep the answer concise and practical.

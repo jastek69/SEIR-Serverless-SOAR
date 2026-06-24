@@ -2,18 +2,19 @@
 
 ## Goal
 
-Provide identity-aware API access with Cognito, enforce authorization at API Gateway, and use DynamoDB for token/session telemetry plus immediate revocation checks.
+Provide identity-aware API access with Cognito, enforce coarse authorization at API Gateway with access-token scopes, and use DynamoDB for token/session telemetry plus revocation-state support.
 
 ## End-to-end request flow
 
 1. Client signs in with Cognito and receives JWTs.
-2. Client calls API with Authorization: Bearer <JWT>.
+2. Client calls API with `Authorization: Bearer <ACCESS_TOKEN>`.
 3. AWS WAF inspects and filters malicious traffic.
-4. API Gateway Cognito authorizer validates token signature/claims.
-5. Lambda executes only for authorized requests.
-6. Lambda writes token/session metadata to token-tracking.
-7. Revocation checks read token-revocation first, then token-tracking state.
-8. CloudWatch captures operational logs/metrics; S3 can retain long-term audit records.
+4. API Gateway Cognito authorizer validates the token and required OAuth scope.
+5. Lambda executes only after WAF and API Gateway allow the request.
+6. Lambda performs final group-based RBAC from Cognito claims.
+7. Lambda writes token/session metadata to token-tracking.
+8. Optional revocation/session-state checks read token-revocation first, then token-tracking state.
+9. CloudWatch captures operational logs/metrics; S3 can retain long-term audit records.
 
 ## Architecture diagram
 
@@ -23,9 +24,9 @@ Provide identity-aware API access with Cognito, enforce authorization at API Gat
 flowchart LR
     C[Client App] -->|Sign in| CG[Cognito User Pool]
     CG -->|ID/Access JWT| C
-    C -->|Authorization: Bearer JWT| WAF[AWS WAF]
+    C -->|Authorization: Bearer ACCESS_TOKEN| WAF[AWS WAF]
     WAF --> APIGW[API Gateway REST]
-    APIGW -->|COGNITO_USER_POOLS authorizer| AUTH{JWT valid?}
+    APIGW -->|COGNITO_USER_POOLS authorizer + scope| AUTH{JWT and scope valid?}
     AUTH -->|No| DENY[401/403]
     AUTH -->|Yes| L1[python_lambda or node_lambda]
 
@@ -51,9 +52,9 @@ Client App
     v
 Cognito User Pool ----> (ID/Access JWT) ----> Client App
     |
-    | Authorization: Bearer <JWT>
+    | Authorization: Bearer <ACCESS_TOKEN>
     v
-AWS WAF ---> API Gateway (Cognito Authorizer) ---> [JWT valid?]
+AWS WAF ---> API Gateway (Cognito Authorizer + scope check) ---> [JWT and scope valid?]
                                                                                             | yes         | no
                                                                                             v             v
                                                                      python_lambda/node_lambda   401/403
@@ -117,17 +118,46 @@ API Gateway + Lambdas + detection ---> CloudWatch Logs/Metrics ---> optional S3 
 - Issue token event: write token-tracking row with active state.
 - Use token event: update token-tracking status/used flags.
 - Revoke token event: write token-revocation row and mark tracking row revoked.
-- Validate request token:
+- Optional revocation/session-state check:
     1. Hash incoming token.
     2. Check token-revocation by token_hash.
     3. Check token-tracking status and expires_at.
     4. Allow or deny.
 - Scheduled cleanup: EventBridge Scheduler invokes detection Lambda every 5 minutes.
 
+## SOAR reporting context
+
+DynamoDB provides the evidence context for unused-token SOAR reporting. It does not store the SOAR report itself. The detector reads token/session records from `token-tracking`, converts stale unused records into findings, sends those findings to Bedrock for analysis, and writes the final report artifacts to S3.
+
+| DynamoDB Field / Detector Value | SOAR Reporting Use |
+| ------------------------------- | ------------------ |
+| `token_id` | Identifies the tracked token/session event without exposing the raw JWT |
+| `username` | Shows which user/account the tracked token was issued for |
+| `issued_at_iso` | Provides the human-readable issue time used to calculate token age |
+| `age_minutes` | Calculated by `unused_token_detector.py` from `issued_at_iso`; shows how long the token has remained unused |
+| `status` | Indicates whether the tracking record is active; the detector accepts lowercase `status` and legacy uppercase `Status` |
+| `used` | Indicates whether the token/session was used; stale findings require `used = false` |
+| `token_kind` | Identifies the type/source of tracked record, such as `cognito-id-token`, `synthetic-tracking-token`, or `legacy-or-unknown` |
+| `records_examined` | Count of DynamoDB records scanned during the detector run |
+| `matched` | Count of records matching the active/unused scan filter |
+| `alerted` | Count of findings published as unused-token alerts |
+| `trigger_source` | Shows whether the scan was scheduled, manual, or otherwise triggered |
+| `reason` | Explains why the SOAR run was invoked, such as manual review or unused-token threshold scan |
+
+SOAR flow:
+
+```text
+token-tracking records
+  -> unused_token_detector.py scans active unused records
+  -> stale records become findings
+  -> Bedrock generates analysis from the findings
+  -> S3 stores Markdown and JSON evidence artifacts
+```
+
 ## Security controls
 
-- API Gateway Cognito authorizer enforces JWT auth.
-- Lambda performs optional defense-in-depth checks on claims.
+- API Gateway Cognito authorizer enforces JWT auth and configured OAuth scopes.
+- Lambda performs final group-based RBAC and optional defense-in-depth checks on claims.
 - DynamoDB uses SSE and PITR where possible.
 - TTL removes stale records automatically.
 - Least privilege IAM for Lambda, API Gateway integration, and scheduler roles.
@@ -270,8 +300,8 @@ def lambda_handler(event, context):
 
 Flow:
 
-1. API Gateway receives the request with the Cognito JWT.
-2. The Cognito authorizer validates the token.
+1. API Gateway receives the request with the Cognito access token.
+2. The Cognito authorizer validates the token and required API scope.
 3. API Gateway puts the validated claims into the Lambda event.
 4. The Python handler reads those claims and extracts the username.
 5. The handler passes that username into the tracking function.
@@ -700,9 +730,9 @@ Make sure your API methods are configured with:
 
 If this is configured correctly, invalid or missing JWTs are rejected by API Gateway before Lambda executes.
 
-### Optional scope enforcement
+### Current API Gateway scope enforcement
 
-If you add Cognito resource server scopes, enforce them on API methods with `authorization_scopes` and send access tokens containing those scopes.
+This project uses Cognito resource server scopes on API Gateway methods with `authorization_scopes`. Clients must send access tokens containing the required scope, such as `rbac-api/admin`.
 
 [OAuth API Resource Server](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-define-resource-servers.html)
 After you configure a domain for your user pool, Amazon Cognito automatically provisions an OAuth 2.0 authorization server and a hosted web UI with sign-up and sign-in pages that your app can present to your users.
@@ -714,17 +744,76 @@ API Authorization:
 - ID token
 - Verified Permissions: creates and assigns a Lambda authorizer that processes ID or access tokens from your request Authorization header. This Lambda authorizer passes your token to your policy store, where Verified Permissions compares it to policies and returns an allow or deny decision to the authorizer.
 
+
+### DynamoDB Global Tables
+
+key attributes and non-key attributes
+- `key_schema` is only for table primary key and GSI keys.
+- Key attributes (table PK and index keys) support only scalar key types (S, N, B) and must be stable query keys. If `used` is in any `key schema`, it cannot be a boolean BOOL. BOOL values are not good state keys
+- `key_type` is used inside `key_schema {}` block for indexes
+
+NOTES:
+- Keys/indexes are for lookup patterns
+- `used`: Sohuld not be part of the key schema- treat as a regular item field for business state and filtering - it is metadata for (BOOL) - `used` is persisted on the token record and can be read later
+- Key attributes support only scalar key types (S, N, B) and must be stable query keys
+- GSI: key_schema is only for table primary key and GSI keys.
+- Keys/indexes model access patterns, not mutable flags
+
+Your Lambda writes and reads stay consistent with DynamoDB schema constraints
+- Use indexes on:
+    - `status`,
+    - username,
+    - expires_at,
+    - token_hash
+
+These are the query dimensions defined inside `unused_token_detector.py`:
+
+Query combinations:
+- token_hash index: fast lookup for revoke/check
+- status + expires_at index: find active tokens by expiry window
+- username + expires_at index: user-focused token timelines
+- expires_at: query time windows/sort by expiry
+
+Global Tables are a DynamoDB multi-Region replication feature. They allow reads and writes in multiple Regions and replicate data asynchronously between replica tables.
+
+Use Global Tables when the application needs multi-Region resiliency or lower-latency local reads/writes. They are not required for this single-Region lab.
+
+Important characteristics:
+
+- Replication is asynchronous, so replicated reads are eventually consistent.
+- Strongly consistent reads are only available in the Region where the read occurs against that Region's replica.
+- Simultaneous writes to the same item in different Regions use last-writer-wins conflict resolution.
+- Cross-Region replication adds cost for replicated writes, storage, and data transfer.
+
+References:
+- [DynamoDB Global Tables](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GlobalTables.html)
+- [DynamoDB GSIs](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GSI.html)
+- [DynamoDB Schemaless](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/SQLtoNoSQL.CreateTable.html)
+
+### Querying DynamoDB"
+
+
+Query the GSI by key then apply `used` as the filter:
+```python
+from boto3.dynamodb.conditions import Key, Attr
+
+resp = tracking.query(
+    IndexName="status-expiry-index",
+    KeyConditionExpression=Key("status").eq("active") & Key("expires_at").gte(cutoff_epoch),
+    FilterExpression=Attr("used").eq(False),
+)
+items = resp.get("Items", [])
+```
+
+
+
 ## Cognito
 
-### Cognito State and tfvar settings
-- Cognito State is handled separately when enabled in tfvars: 
-`cognito_state_enabled = true`
+### Cognito Pool Wiring
 
-- Cognito backend settings are configured in the `tfvars`:
-cognito_state_bucket = `"<name of cognito bucket>"`
-- cognito_state_key = `"where/to/place/cognito-terraform-state.tfstate"`
-- cognito_state_enabled = `true` or `false`
-- cognito_state_region = `"us-west-2" # must match the bucket's actual region when enabled`
+This stack creates the Cognito RBAC user pool locally in `cognito.tf`.
+API Gateway authorizers in `api.tf` trust `aws_cognito_user_pool.cognito_rbac_pool.arn` directly.
 
-##### NOTE: The Cognito remote state is handled in the `api.tf`
+# WAF Bedrcok Analyzer
 
+## Glossary

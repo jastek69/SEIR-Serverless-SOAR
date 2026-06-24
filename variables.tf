@@ -191,44 +191,6 @@ variable "api_gateway_access_log_retention_days" {
 
 
 
-# Cognito variables
-variable "cognito_user_pool_arn" {
-  description = "Direct override for Cognito user pool ARN. If set, this value is used by API Gateway authorizers."
-  type        = string
-  default     = ""
-}
-
-variable "cognito_state_enabled" {
-  description = "Enable reading Cognito outputs from remote Terraform state in S3."
-  type        = bool
-  default     = false
-}
-
-variable "cognito_state_bucket" {
-  description = "S3 bucket for the Terraform state that contains Cognito outputs."
-  type        = string
-  default     = ""
-}
-
-variable "cognito_state_key" {
-  description = "S3 state key for the Terraform state that contains Cognito outputs."
-  type        = string
-  default     = ""
-}
-
-variable "cognito_state_region" {
-  description = "AWS region for the Terraform state backend containing Cognito outputs."
-  type        = string
-  default     = "us-west-2"
-}
-
-variable "cognito_state_output_name" {
-  description = "Output name in the Cognito Terraform state that holds the user pool ARN."
-  type        = string
-  default     = "cognito_user_pool_arn"
-}
-
-
 variable "cognito_user_pool_client_id" {
   description = "Direct override for Cognito user pool client ID. If set, this value is used by API Gateway authorizers."
   type        = string
@@ -239,4 +201,14 @@ variable "cognito_user_pool_id" {
   description = "Direct override for Cognito user pool ID for Lambdas that call Cognito APIs."
   type        = string
   default     = ""
+}
+
+
+# Bedrock
+
+## Tokens
+variable "soar_max_tokens" {
+  description = "Maximum tokens for Bedrock LLM responses in the SOAR module."
+  type        = number
+  default     = 500
 }

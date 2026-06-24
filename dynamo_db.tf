@@ -51,6 +51,11 @@ resource "aws_dynamodb_table" "dynamoDb_token_tracking" {
     type = "N"
   }
 
+  # attribute {
+    # name = "issued_at"
+    # type = "N"
+  # }
+
   global_secondary_index {
     name = "user-expiry-index"
 
@@ -63,7 +68,6 @@ resource "aws_dynamodb_table" "dynamoDb_token_tracking" {
       attribute_name = "expires_at"
       key_type       = "RANGE"
     }
-
 
     projection_type = "ALL"
   }
@@ -145,3 +149,26 @@ resource "aws_dynamodb_table" "dynamoDb_token_revocation" {
   }
 }
 
+
+# Table 3 WAF Events
+# schemaless for non-key fields to store written by lambda (waf_bedrock_analyzer_py):
+# event_id, timestamp, source_ip, country, uri, method, action, rule
+resource "aws_dynamodb_table" "dynamoDb_waf_events" {
+  name         = "waf-events"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "event_id"
+
+  attribute {
+    name = "event_id"
+    type = "S"
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
+  tags = {
+    Name      = "waf-events"
+    Component = "waf"
+  }
+}

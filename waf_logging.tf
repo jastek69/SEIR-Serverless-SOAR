@@ -12,11 +12,51 @@ data "aws_cloudwatch_log_group" "taaops_cw_waf_log_group" {
   name = "aws-waf-logs-${var.project_name}-cloudfront-waf"
 }
 
+
+# CloudWatch Log Group for WAF logging
+data "aws_iam_policy_document" "taaops_cf_waf_log_policy" {
+  count   = var.enable_waf && var.waf_log_destination == "cloudwatch" ? 1 : 0
+  version = "2012-10-17"
+
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["delivery.logs.amazonaws.com"]
+    }
+
+    actions = [
+      "logs:CreateLogStream",
+      "logs:PutLogEvents"
+    ]
+
+    # Include :* so log stream operations are covered
+    resources = ["${data.aws_cloudwatch_log_group.taaops_cw_waf_log_group[0].arn}:*"]
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = ["${aws_wafv2_web_acl.taaops_cf_waf01.arn}:*"]
+    }
+  }
+}
+
+# CloudWatch Log Resource Policy for WAF logging
+resource "aws_cloudwatch_log_resource_policy" "waf_logs_resource_policy" {
+  count           = var.enable_waf && var.waf_log_destination == "cloudwatch" ? 1 : 0
+  policy_name     = "WAF-CloudWatch-Logs-Policy-${var.project_name}"
+  policy_document = data.aws_iam_policy_document.taaops_cf_waf_log_policy[0].json
+}
+
+# Cloudwatch logging path
 resource "aws_wafv2_web_acl_logging_configuration" "taaops_cf_waf_logging" {
   count    = var.enable_waf && var.waf_log_destination == "cloudwatch" ? 1 : 0
   provider = aws.us-west-2
 
   resource_arn = aws_wafv2_web_acl.taaops_cf_waf01.arn
+  # Use one destination type per logging configuration. CloudWatch uses a CloudWatch Logs resource policy,
+  # while S3 uses an S3 bucket policy in the separate S3 logging configuration below.
   log_destination_configs = [
     data.aws_cloudwatch_log_group.taaops_cw_waf_log_group[0].arn
   ]
@@ -46,6 +86,11 @@ resource "aws_s3_bucket" "aws-waf-logs-cf-dest" {
   force_destroy = true
 }
 
+# S3 WAF logging path
+# Safety Gate: Count is used to conditionally create the policy only when S3 is the log destination.
+# (count = 1): If WAF is enabled AND the destination is set to "s3", create this resource - when both conditions are true (WAF enabled AND destination set to "s3"), count=1
+# (count = 0): Otherwise skip it
+# WAF log destination is set in tfvars with the variable `waf_log_destination` set to "s3" or "cloudwatch" or "firehose"
 resource "aws_wafv2_web_acl_logging_configuration" "taaops_cf_waf_logging_s3" {
   count    = var.enable_waf && var.waf_log_destination == "s3" ? 1 : 0
   provider = aws.us-west-2
@@ -108,6 +153,69 @@ resource "aws_s3_bucket_policy" "aws-waf-logs-cf-dest-policy" {
 }
 
 
+# DynamoDB WAF Lambda Policy
+resource "aws_iam_policy" "waf_lambda_dynamodb_policy" {
+  count    = var.enable_waf && var.waf_log_destination == "cloudwatch" ? 1 : 0
+  provider = aws.us-west-2
+
+  name        = "${var.project_name}-waf-lambda-dynamodb-policy"
+  description = "Policy for WAF Lambda to access DynamoDB for Bedrock analyzer"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:FilterLogEvents"
+        ]
+        Resource = "arn:aws:logs:${var.region}:${data.aws_caller_identity.current.account_id}:log-group:${data.aws_cloudwatch_log_group.taaops_cw_waf_log_group[0].name}:*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "bedrock:InvokeModel"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "events:PutEvents"
+        ]
+        Resource = "arn:aws:events:${var.region}:${data.aws_caller_identity.current.account_id}:event-bus/default"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:PutItem",
+          "dynamodb:GetItem",
+          "dynamodb:Query",
+          "dynamodb:Scan"
+        ]
+        Resource = aws_dynamodb_table.dynamoDb_waf_events.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameter",
+          "ssm:GetParameters",
+          "ssm:GetParametersByPath"
+        ]
+        Resource = aws_ssm_parameter.waf_bedrock_analyzer_prompt.arn
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "waf_lambda_dynamodb_policy_attachment" {
+  count      = var.enable_waf && var.waf_log_destination == "cloudwatch" ? 1 : 0  #Gating check to ensure the policy is only attached when WAF is enabled and the log destination is CloudWatch
+  provider   = aws.us-west-2
+  role       = aws_iam_role.lambda_execution_role.name
+  policy_arn = aws_iam_policy.waf_lambda_dynamodb_policy[count.index].arn
+}
+
+
+### KINESIS IMPLEMENTATION
 /* FIREHOSE Configuration for WAF logging. 
 # Note: If using Firehose for WAF logging, the `aws_wafv2_web_acl_logging_configuration` resource must be recreated to properly associate with the new Firehose delivery stream.
 # This is because the logging configuration cannot be updated in place to change the log destination type.

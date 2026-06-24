@@ -298,7 +298,7 @@ resource "aws_bedrockagent_prompt" "soar" {
     inference_configuration {
       text {
         temperature = 0.8
-        max_tokens  = 2000
+        max_tokens  = var.soar_max_tokens
       }
     }
 
@@ -357,9 +357,52 @@ EOT
   }
 }
 
+
+
+# WAF Lambda
+data "archive_file" "waf_bedrock_analyzer" {
+  type        = "zip"
+  source_file = "./src/waf_bedrock_analyzer.py"
+  output_path = "./lambda/waf_bedrock_analyzer.zip"
+}
+
+resource "aws_lambda_function" "waf_bedrock_analyzer" {
+  filename      = data.archive_file.waf_bedrock_analyzer.output_path
+  function_name = "waf_bedrock_analyzer_function"
+  role          = aws_iam_role.lambda_execution_role.arn
+  handler       = "waf_bedrock_analyzer.lambda_handler"
+  code_sha256   = data.archive_file.waf_bedrock_analyzer.output_base64sha256
+
+  runtime = "python3.9"
+
+  environment {
+    variables = {
+      DYNAMODB_TABLE                           = aws_dynamodb_table.dynamoDb_waf_events.name
+      WAF_LOG_GROUP                            = "aws-waf-logs-${var.project_name}-cloudfront-waf"
+      BEDROCK_MODEL_ID                         = "anthropic.claude-3-haiku-20240307-v1:0"
+      WAF_BEDROCK_ANALYZER_PROMPT_PARAM_NAME  = aws_ssm_parameter.waf_bedrock_analyzer_prompt.name
+      WAF_BEDROCK_ANALYZER_MAX_OUTPUT_TOKENS  = "300"
+      WAF_BEDROCK_ANALYZER_TEMPERATURE        = "0.3"
+      WAF_BEDROCK_ANALYZER_RISK_FOCUS         = "all"
+      WAF_BEDROCK_ANALYZER_GENERATE_ON_EMPTY  = "true"
+    }
+  }
+}
+
+
+
+
 # Parameter Store for sensitive prompts
+# At runtime this is called by the Lambda (unused_token_detector.py) to retrieve the prompt template for Bedrock LLM analysis.
+# Flow: Lambda -> SSM Parameter Store -> Bedrock Agent Prompt text -> Bedrock Call
 resource "aws_ssm_parameter" "soar_prompt" {
   name  = "/bedrock/soar-prompt"
   type  = "String"
   value = file("${path.module}/prompts/soar-prompt.txt")
+}
+
+resource "aws_ssm_parameter" "waf_bedrock_analyzer_prompt" {
+  name  = "/bedrock/waf-bedrock-analyzer-prompt"
+  type  = "String"
+  value = file("${path.module}/prompts/waf-bedrock-analyzer-prompt.txt")
 }
