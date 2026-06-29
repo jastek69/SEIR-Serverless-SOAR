@@ -9,11 +9,13 @@
 ---
 
 ## ✍️ Authors & Acknowledgments
+
 **Credit: TheoRec** for the orginal starting code base
 
 [jastek69:](https://github.com/jastek69): main repo
 
 -----
+
 # Supporting Documentation
 
 Refer to the `/docs` folder for detailed explanations and walkthrough instructions:
@@ -26,6 +28,45 @@ Refer to the `/docs` folder for detailed explanations and walkthrough instructio
 - jwt.md - Cognito OAuth JWT wtih API Gateway details
 - lambda-walkthru - lambda AWS console instructions
 - WAF.md -  WAFV2 confiuration details
+
+# Lambda Invocation Outline
+
+The current Terraform configuration wires Lambda functions to these runtime trigger paths:
+
+- `python_lambda_function`
+  - Called by API Gateway on `GET /PythonResource` after Cognito authorization and scope checks.
+  - Called by S3 when a new object is created in the immutable audit bucket.
+- `node_lambda_function`
+  - Called by API Gateway on `GET /NodeResource` after Cognito authorization and scope checks.
+- `unused_token_detector_function`
+  - Called every 5 minutes by EventBridge Scheduler.
+- `immediate_revoke_66_function`
+  - Called when a CloudWatch alarm changes to `ALARM` through an EventBridge rule.
+- `${var.project_name}-taaops-ir-reporter`
+  - Called by SNS when a message is published to the incident trigger topic.
+- `${local.name_prefix}-processor`
+  - Called by S3 when a new object is created in the translation input bucket.
+- `get_token_function`, `python_rbac_function`, `verify_groups_function`, `update_token_function`, `revoke_token_function`, `${var.project}-process-orders`, `waf_bedrock_analyzer_function`
+  - Deployed in Terraform, but not automatically wired to an AWS event source in the current configuration.
+  - Some of these are used by direct CLI or test-script invocation.
+
+## Lambda Trigger Table
+
+| Lambda function | When it is called | Trigger source | Terraform or repo reference |
+|---|---|---|---|
+| `python_lambda_function` | When `GET /PythonResource` is invoked with a valid Cognito token and required scope; also when a new object is created in the immutable audit bucket | API Gateway, S3 bucket notification | `api.tf`, `s3.tf` |
+| `node_lambda_function` | When `GET /NodeResource` is invoked with a valid Cognito token and required scope | API Gateway | `api.tf` |
+| `unused_token_detector_function` | Every 5 minutes | EventBridge Scheduler | `eventbridge.tf`, `lambda.tf` |
+| `immediate_revoke_66_function` | Whenever a CloudWatch alarm enters the `ALARM` state | EventBridge rule on CloudWatch alarm state changes | `eventbridge.tf`, `lambda.tf` |
+| `${var.project_name}-taaops-ir-reporter` | When SNS publishes to the dedicated incident trigger topic | SNS subscription | `bedrock.tf` |
+| `${local.name_prefix}-processor` | When a new object is created in the translation module input bucket | S3 bucket notification | `modules/translation/main.tf` |
+| `get_token_function` | No automatic trigger defined in Terraform | Manual or direct invoke | `lambda.tf` |
+| `python_rbac_function` | No automatic trigger defined in Terraform | Manual or direct invoke | `lambda.tf` |
+| `verify_groups_function` | No automatic trigger defined in Terraform | Manual or direct invoke | `lambda.tf` |
+| `update_token_function` | No AWS event trigger defined; used directly in repo test flow to mark tokens as used | Direct CLI or test invocation | `lambda.tf`, `docs/rbac-test.md`, `scripts/rbac_test.sh` |
+| `revoke_token_function` | No automatic trigger defined in Terraform | Manual or direct invoke | `lambda.tf` |
+| `${var.project}-process-orders` | No trigger wiring is present | Not currently called by Terraform-managed events | `s3.tf` |
+| `waf_bedrock_analyzer_function` | No trigger wiring is present | Not currently called by Terraform-managed events | `bedrock.tf` |
 
 # Terraform Templates – Reusable Skeleton
 
@@ -949,12 +990,12 @@ aws cognito-idp initiate-auth \
       --auth-flow USER_PASSWORD_AUTH \
       --client-id <CLIENT_ID> \
       --auth-parameters USERNAME=student1,PASSWORD=YourPassword
-   
+
 aws cognito-idp respond-to-auth-challenge \
       --client-id <CLIENT_ID> \
       --challenge-name SMS_MFA \
       --challenge-responses USERNAME=student1,SMS_MFA_CODE=123456 \
-      --session <SESSION>   
+      --session <SESSION>
 
 Error message: obtain secret hash
 [Auth Challenge](https://docs.aws.amazon.com/cli/latest/reference/cognito-idp/respond-to-auth-challenge.html)
@@ -1000,14 +1041,16 @@ reference links:
 <https://docs.aws.amazon.com/cli/latest/reference/cognito-idp/respond-to-auth-challenge.html>
 
 1. Create/run a Python script to generate the Cognito `SECRET_HASH`
- - Obtain `SECRET_HASH` by running the Python script: python auth.py ziontheo 7im6sn4tj742m8s7njfr7olqga ri6fb0nihm6p3p05k36g32318o74olvh695ht7455o64728g8t5
 
-2. Generate the `SECRET_HASH` by running the python script using:
- - Cognito username
- - Cognito app client ID
- - Cognito app client secret value
+- Obtain `SECRET_HASH` by running the Python script: python auth.py ziontheo 7im6sn4tj742m8s7njfr7olqga ri6fb0nihm6p3p05k36g32318o74olvh695ht7455o64728g8t5
 
-3. Call `initiate-auth` to start authentication. This initiates an authorization request and returns a session when MFA is required.
+1. Generate the `SECRET_HASH` by running the python script using:
+
+- Cognito username
+- Cognito app client ID
+- Cognito app client secret value
+
+1. Call `initiate-auth` to start authentication. This initiates an authorization request and returns a session when MFA is required.
 
 Inputs:
 
@@ -1227,6 +1270,7 @@ NOTE: for Rest API
 REST API Cognito authorizer used as simple authentication, use the ID token instead.
 
 AWS’s REST API Cognito flow is split this way:
+
 - ID token: accepted for basic REST API Cognito authorizer authentication.
 - Access token: use it when the API method has Authorization scopes configured and the token carries an accepted scope.
 
@@ -1482,12 +1526,10 @@ This produces the expected lab behavior:
 
 #### Cognito Resource Server and Scopes
 
-https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html
+<https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html>
 
-https://docs.aws.amazon.com/cognito/latest/developerguide/federation-endpoints-oauth-grants.html
-https://aws.amazon.com/blogs/security/how-to-use-oauth-2-0-in-amazon-cognito-learn-about-the-different-oauth-2-0-grants/
-
-
+<https://docs.aws.amazon.com/cognito/latest/developerguide/federation-endpoints-oauth-grants.html>
+<https://aws.amazon.com/blogs/security/how-to-use-oauth-2-0-in-amazon-cognito-learn-about-the-different-oauth-2-0-grants/>
 
 The Cognito resource server defines API-level scopes:
 
@@ -1767,7 +1809,6 @@ expires_at = current_utc_epoch + token_lifetime_seconds
 If token life is 15 minutes:
 expires_at = now + 900
 
-
 ## Security - Monitoring – logs, metrics, alerting
 
 - Cloudwatch - infrastructure logs, operational logs and alarms
@@ -1783,10 +1824,10 @@ JWT signing keys
 OAuth client secrets
 
 Example events worth recording:
+
 ```
 token-tracking
 ```
-
 
 Navigation
 
@@ -2053,7 +2094,6 @@ SOAR Changes Model
     → Human escalation if needed
 ```
 
-
 Modern environments generate:
 
     millions of logs
@@ -2063,7 +2103,6 @@ Modern environments generate:
     cloud telemetry
 
 Humans cannot manually process all of it.
-
 
 Without automation:
 
@@ -2109,6 +2148,7 @@ Suspicious Login.... from bananaland...
         → disable account if high risk
 
 Why Companies Use SOAR
+
 1. Speed --> Automation reacts faster than humans.
 2. Consistency --> Playbooks execute the same way every time.
 3. Scale--> Security teams can manage larger environments.
@@ -2208,7 +2248,6 @@ You should leave understanding:
 ✔ Modern cloud environments require automation
 ✔ Detection is only the beginning
 
-
 ## SOAR Configuration
 
 ### SSM Parameter store
@@ -2222,8 +2261,9 @@ In this repo, SSM is being used as the runtime prompt store for SOAR, so the Lam
 5. If SSM returns a value, that prompt is used and marked as source ssm in unused_token_detector.py:62.
 6. If SSM is missing/unavailable, it falls back to built-in text and marks source fallback in unused_token_detector.py:67.
 
-### Example relevant settings inside:
-- `unused_token_detector.py` 
+### Example relevant settings inside
+
+- `unused_token_detector.py`
 - `lambda.tf: resource "aws_lambda_function" "unused_token_detector"`
 
 Terraform parameter definition:
@@ -2418,7 +2458,6 @@ SOAR_GENERATE_ON_EMPTY=true -> soar_generated=true and files are uploaded
 SOAR_GENERATE_ON_EMPTY=false -> soar_generated=false and no SOAR files uploaded
 ```
 
-
 # IAM Roles and Policies - Least Privilege Design
 
 The IAM design follows least privilege:
@@ -2428,18 +2467,20 @@ Give each service only the permissions required for its specific job.
 ```
 
 AWS IAM controls which services can perform actions on AWS resources. In this project, IAM is implemented through:
+
 - Roles
 - Identity-based policies
 - Resource-based policies
 
 Examples:
+
 - API Lambdas should not have broad S3 write access unless needed.
 - The unused-token detector should only scan the token table and write reports where required.
 - Bedrock invocation should be limited to the Lambda that generates SOAR reports.
 - DynamoDB permissions should target specific table ARNs, not all tables.
 
-
 ## IAM Role
+
 An IAM role is an AWS identity that a service can assume temporarily. Instead of embedding long-term credentials in code, services such as Lambda use execution roles.
 
 ***Lambda***
@@ -2453,12 +2494,15 @@ Lambda Function
   ```
 
 ### IAM Policies
-IAM policies define what actions are allowed or denied. A policy answers: 
+
+IAM policies define what actions are allowed or denied. A policy answers:
+
 ```
 Who can do what, on which resource?
 ```
 
 Example strucure:
+
 ```json
 {
   "Effect": "Allow",
@@ -2472,6 +2516,7 @@ Example strucure:
 ```
 
 ## Lambda Execution Roles
+
 Lambda functions do not store AWS access keys. They receive temporary permissions through their assigned IAM execution roles.
 
 ```
@@ -2482,9 +2527,11 @@ Lambda Function
 ```
 
 ### IAM Implementation in This Project
+
 Each Lambda function should use an IAM role that grants only the permissions it needs. Bedrock, DynamoDB, S3, CloudWatch, EventBridge, and API Gateway are connected through scoped IAM roles, policies, and resource-based permissions.
 
 Examples:
+
 | IAM Component | Purpose | Example Permissions |
 | --- | --- | --- |
 | Lambda execution role | Allows Lambda functions to call AWS services at runtime | `logs:PutLogEvents`, `dynamodb:PutItem`, `s3:PutObject`, `bedrock:InvokeModel` |
@@ -2496,26 +2543,28 @@ Examples:
 | DynamoDB table permissions | Allows token tracking, revocation, and unused-token scans | `dynamodb:PutItem`, `dynamodb:UpdateItem`, `dynamodb:GetItem`, `dynamodb:Scan`, `dynamodb:Query` |
 | CloudWatch Logs permissions | Allows Lambda/API workflows to write operational logs | `logs:CreateLogGroup`, `logs:CreateLogStream`, `logs:PutLogEvents` |
 
-
 Cognito controls who can call the API.
-IAM controls what AWS services can do after the request is accepted. 
+IAM controls what AWS services can do after the request is accepted.
 
 For example, Cognito/API Gateway authorizes the caller, while the Lambda execution role authorizes the Lambda function to write to DynamoDB, invoke Bedrock, write S3 reports, and publish logs.
 
-
-
 ### CloudWatch Logging
+
 Lambda functions need permission to write logs:
+
 ```
 logs:CreateLogGroup
 logs:CreateLogStream
 logs:PutLogEvents
 ```
+
 These permissions allow Lambda runtime logs, application logs, and error traces to appear in CloudWatch.
 
 ### DynamoDB Access
+
 Lambda DynamoDB permissions are scoped to the `token-tracking` and `token-revocation` tables.
 Typical actions include:
+
 ```
 dynamodb:PutItem
 dynamodb:GetItem
@@ -2526,10 +2575,11 @@ dynamodb:Query
 
 This supports token/session tracking, revocation checks, and unused-token detection.
 
-
 ### S3 Access
+
 S3 permissions are used for SOAR report storage and audit artifacts.
 Typical actions include:
+
 ```
 s3:PutObject
 s3:GetObject
@@ -2539,26 +2589,33 @@ s3:ListBucket
 The SOAR workflow writes Markdown and JSON evidence reports to the configured reports bucket.
 
 ### Bedrock Access and Lambda
+
 The SOAR Lambda requires IAM permission to call Amazon Bedrock:
+
 ```
 bedrock:InvokeModel
 ```
+
 This allows the Lambda to send security-event context to the configured Bedrock model and receive the generated SOAR analysis.
 
 ### API Gateway to Lambda: Resource-Based Permissions
+
 API Gateway does not use the Lambda execution role to invoke Lambda. Instead, Lambda has a resource-based permission allowing API Gateway to invoke it.
 
 Example concept:
+
 ```
 Principal: apigateway.amazonaws.com
 Action: lambda:InvokeFunction
 Resource: target Lambda function
 ```
+
 This is usually implemented with aws_lambda_permission.
 
-
 ### EventBridge Scheduler Role
+
 EventBridge Scheduler needs permission to invoke the unused-token detector Lambda on schedule.
+
 ```
 EventBridge Scheduler
   -> assumes scheduler role
@@ -2566,13 +2623,15 @@ EventBridge Scheduler
 ```
 
 The role should allow:
+
 ```
 lambda:InvokeFunction
 ```
+
 only on the dector lambda
 
-
 ## Summary
+
 IAM provides the security foundation for service-to-service access in this project:
 
 ```text
@@ -2588,8 +2647,6 @@ Resource policies = allow API Gateway/EventBridge/S3 to invoke Lambda
 3. Lambda code decides final application-level RBAC.
 4. IAM controls what AWS services are allowed to do after the request is accepted.
 
-
-
 ## The Shield - RBAC, IAM, API Gateway, WAF, and SOAR
 
 This project uses layered security controls to protect both the public API boundary and the internal AWS service boundary.
@@ -2600,7 +2657,6 @@ This project uses layered security controls to protect both the public API bound
 - IAM roles and policies control what AWS services can do after a request is accepted.
 - DynamoDB, CloudWatch, EventBridge, Bedrock, and S3 support detection, reporting, and SOAR response workflows.
 
-
 RBAC protects API access decisions. IAM protects AWS service-to-service actions. Together, they provide external and internal protection.
 
 Layer 1 RBAC: API Gateway performs coarse authorization by requiring Cognito access-token scopes such as rbac-api/admin.
@@ -2609,7 +2665,6 @@ Layer 2 RBAC: Lambda performs final application authorization by reading Cognito
 
 IAM: IAM roles and policies do not authorize end users directly. IAM authorizes AWS services, such as Lambda, EventBridge, API Gateway, S3, DynamoDB, and Bedrock, to interact with each other.
 
-
 ```
 Layer 1 RBAC = API Gateway/Cognito scope enforcement
 Layer 2 RBAC = Lambda code group-claim enforcement
@@ -2617,8 +2672,10 @@ IAM = service authorization, not user RBAC
 ```
 
 ### Layer 1 RBAC - OAuth scope-based API authorization
+
 This is the first authorization gate before Lambda runs.
 Implemented by:
+
 ```
 Cognito access token
 API Gateway Cognito authorizer
@@ -2626,6 +2683,7 @@ API Gateway authorization_scopes
 ```
 
 Example:
+
 ```
 authorization        = "COGNITO_USER_POOLS"
 authorizer_id        = aws_api_gateway_authorizer.python_cognito.id
@@ -2633,9 +2691,11 @@ authorization_scopes = ["rbac-api/admin"]
 ```
 
 ### Layer 2 RBAC - Lambda authorization
+
 This is the second authorization gate inside your Lambda code.
 
 Implemented by:
+
 ```
 Lambda handler
 Cognito group claims
@@ -2643,6 +2703,7 @@ cognito:groups
 ```
 
 Example:
+
 ```python
 groups = claims.get("cognito:groups", "")
 
@@ -2654,11 +2715,13 @@ if "admin" not in groups:
 ```
 
 Security check - What it answers:
+
 ```
 Even if the request reached Lambda, is this user allowed to perform this application action?
 ```
 
 Example result:
+
 ```
 Valid token reaches Lambda
 User is not in admin group
@@ -2666,8 +2729,10 @@ Lambda returns 403
 ```
 
 ### IAM - what can a Service do
+
 IAM is service-to-service authorization.
 Examples:
+
 ```
 Can Lambda write to DynamoDB?
 Can Lambda invoke Bedrock?
@@ -2676,8 +2741,6 @@ Can API Gateway invoke Lambda?
 ```
 
 # EventBridge
-
-
 
 # GLOSSARY
 
@@ -2717,7 +2780,6 @@ Legacy notes:
 From a cost perspective, you pay the usual DynamoDB prices for read capacity and storage, along with data transfer charges for cross-Region replication. Write capacity is billed in terms of replicated write capacity units. Refer to Amazon DynamoDB pricing for more details.
 
 # EventBridge
-
 
 Triggers the detector Lambda -> EventBridge invokes unused_token_detector every 5 minutes (or required timing) -> `unused_token_detector` scans DynamoDB for issued-but-unused tokens
 
@@ -2768,29 +2830,33 @@ example: Example: Granting EventBridge the permission to send messages to an SNS
 
 When a rule runs in EventBridge, all of the targets associated with the rule are invoked. Rules can invoke AWS Lambda functions, publish to Amazon SNS topics, or relay the event to Kinesis streams. To make API calls against the resources you own, EventBridge needs the appropriate permissions. For Amazon CloudWatch Logs resources, EventBridge uses resource-based policies. For Lambda, Amazon SNS, and Amazon SQS resources, EventBridge can use either an IAM execution role or a resource-based policy. For Kinesis streams, EventBridge uses identity-based policies.
 
+## AI Cost Controls
 
-## AI Cost Controls:
 Primary Cost Reduction Strategies
-1. Optimize Token Usage - Token count is the biggest driver of cost
-  - Reduce token usage by setting appropriate `max_tokens` parameter. Set it to closely match your expected response sizes rather than using high default values
-  - Trim prompts: Remove verbose language, use concise phrasing, and enforce maximum prompt sizes
-  - Limit output length: Use explicit output length constraints to prevent unnecessarily long responses
 
-2. Use Tiered Model Selection
+1. Optimize Token Usage - Token count is the biggest driver of cost
+
+- Reduce token usage by setting appropriate `max_tokens` parameter. Set it to closely match your expected response sizes rather than using high default values
+- Trim prompts: Remove verbose language, use concise phrasing, and enforce maximum prompt sizes
+- Limit output length: Use explicit output length constraints to prevent unnecessarily long responses
+
+1. Use Tiered Model Selection
 Instead of always using Claude Sonnet 4.6 (your most expensive model):
+
 - Route simple tasks to Claude 3 Haiku (faster, cheaper)
 - Use Claude 3.5 Sonnet for moderate complexity
 - Reserve Claude Sonnet 4.6 only for complex tasks
 This can reduce costs by up to 30% without compromising accuracy
+
 3. Implement Prompt Caching
 Cache repeated prompt prefixes between requests
 Can reduce input token costs by up to 85%
 Particularly effective if you have static system prompts or templates
-4. Use Intelligent Prompt Routing
+2. Use Intelligent Prompt Routing
 Amazon Bedrock offers automatic routing between models in the same family based on complexity, which can significantly reduce costs.
 
+Example: Terraform code optimization
 
-Example: Terraform code optimization 
 ```JSON
 # Example optimization in Terraform
 resource "aws_bedrock_model_invocation" "example" {
@@ -2806,3 +2872,10 @@ resource "aws_bedrock_model_invocation" "example" {
   })
 }
 ```
+
+# WAF Rules
+
+References:
+[WAF Rule Groups](https://docs.aws.amazon.com/waf/latest/developerguide/aws-managed-rule-groups-list.html)
+[WAF AWS Managed Rule](https://docs.aws.amazon.com/waf/latest/developerguide/aws-managed-rule-groups.html)
+[WAF DDOS](https://docs.aws.amazon.com/waf/latest/developerguide/aws-managed-rule-groups-anti-ddos.html)

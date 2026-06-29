@@ -10,10 +10,8 @@ dynamodb = boto3.resource("dynamodb")
 #table = dynamodb.Table("waf-events")
 DYNAMODB_TABLE = os.environ["DYNAMODB_TABLE"]
 table = dynamodb.Table(DYNAMODB_TABLE)
-table = dynamodb.Table("dynamoDb_waf_events")
 
 logs = boto3.client("logs")
-bedrock = boto3.client("bedrock-runtime")
 
 ANALYZER_TABLE = os.environ.get("ANALYZER_TABLE", "analyzer")
 analyzer = dynamodb.Table(ANALYZER_TABLE)
@@ -94,18 +92,17 @@ def summarize_waf_event(waf_event):
 
     
 def call_bedrock(waf_summary):
+    template = None
     try:
         result = ssm.get_parameter(Name=WAF_BEDROCK_ANALYZER_PROMPT_PARAM_NAME, WithDecryption=True)
-        template = result.get("Parameter", {}).get("Value", "").strip()
-        
-        if template:
-            return template, "ssm"
+        template = result.get("Parameter", {}).get("Value", "").strip() or None
     except Exception:
         pass
-
-
- # Fallback template if the SSM parameter is unavailable.
-    prompt = f"""
+        
+    if template:
+        prompt = f"{template}\n\nEvent:\n{json.dumps(waf_summary, indent=2)}"
+    else:
+        prompt = f"""
 You are a SOC analyst assistant.
 
 Analyze the following AWS WAF event.
@@ -126,8 +123,8 @@ Keep the answer concise and practical.
 
     body = {
         "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 500,
-        "temperature": 0.2,
+        "max_tokens": WAF_BEDROCK_ANALYZER_MAX_OUTPUT_TOKENS,
+        "temperature": WAF_BEDROCK_ANALYZER_TEMPERATURE,
         "messages": [
             {
                 "role": "user",
@@ -144,7 +141,6 @@ Keep the answer concise and practical.
     response_body = json.loads(response["body"].read())
     return response_body["content"][0]["text"]
     
-    print("Bedrock invocation successful")
     
 # Save results to DynamoDB
 def save_to_dynamodb(waf_summary):
@@ -196,8 +192,7 @@ def lambda_handler(event, context):
         print("================================\n")
     except Exception as e:
         print(f"Bedrock error: {e}")
-    else:
-        print("No WAF events to analyze with Bedrock")
+    
     
     return {
         "statusCode": 200,

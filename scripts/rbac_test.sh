@@ -224,31 +224,12 @@ if [[ -n "${VALID_ACCESS_TOKEN:-}" ]]; then
     assert_status "Python admin auth" "200" "$PY_ADMIN_STATUS"
     assert_status "Node admin auth" "200" "$NODE_ADMIN_STATUS"
 
-    if [[ -n "${ID_TOKEN_TRACKING_ID:-}" ]]; then
-        echo "Marking the registered admin Cognito JWT as used..."
-        aws lambda invoke \
-            --function-name "update_token_function" \
-            --payload "{\"body\":\"{\\\"token_id\\\":\\\"$ID_TOKEN_TRACKING_ID\\\",\\\"action\\\":\\\"used\\\"}\"}" \
-            --region "$REGION" \
-            --cli-binary-format raw-in-base64-out \
-            update-admin-token-response.json
-    fi
-
     if [[ -n "$NON_ADMIN_ACCESS_TOKEN" ]]; then
         echo "Scope/RBAC deny test with non-admin access token (expected: 403)"
         run_curl_with_status PY_RBAC_DENY_STATUS "$API_PY_BASE/PythonResource?name=denied" -H "Authorization: $NON_ADMIN_ACCESS_TOKEN"
         run_curl_with_status NODE_RBAC_DENY_STATUS "$API_NODE_BASE/NodeResource?name=denied" -H "Authorization: $NON_ADMIN_ACCESS_TOKEN"
         assert_status "Python non-admin scope/RBAC deny" "403" "$PY_RBAC_DENY_STATUS"
         assert_status "Node non-admin scope/RBAC deny" "403" "$NODE_RBAC_DENY_STATUS"
-        if [[ -n "${NON_ADMIN_ID_TOKEN_TRACKING_ID:-}" ]]; then
-            echo "Marking the registered non-admin Cognito JWT as used..."
-            aws lambda invoke \
-                --function-name "update_token_function" \
-                --payload "{\"body\":\"{\\\"token_id\\\":\\\"$NON_ADMIN_ID_TOKEN_TRACKING_ID\\\",\\\"action\\\":\\\"used\\\"}\"}" \
-                --region "$REGION" \
-                --cli-binary-format raw-in-base64-out \
-                update-non-admin-token-response.json
-        fi
     else
         echo "Skipping scope/RBAC deny test. Set NON_ADMIN_ACCESS_TOKEN to run explicit non-admin checks."
         skip_check "Python non-admin scope/RBAC deny"
@@ -316,6 +297,28 @@ fi
 echo "Querying main DynamoDB table for entries related to example_user_id..."
 aws dynamodb describe-table --table-name token-tracking --region "$REGION"
 aws dynamodb scan --table-name token-tracking --region "$REGION" --limit 5
+
+# The handlers now auto-mark tracked JWT records as used when successful authenticated
+# requests include matching jti/origin_jti claims.
+if [[ -n "${ID_TOKEN_TRACKING_ID:-}" ]]; then
+    echo "Checking tracked admin token state after API tests (auto-mark validation)..."
+    aws dynamodb get-item \
+        --table-name token-tracking \
+        --key "{\"token_id\":{\"S\":\"$ID_TOKEN_TRACKING_ID\"}}" \
+        --region "$REGION" \
+        --query "Item.{token_id:token_id.S,status:status.S,used:used.BOOL,updated_at_iso:updated_at_iso.S,last_used_request_id:last_used_request_id.S}" \
+        --output table
+fi
+
+if [[ -n "${NON_ADMIN_ID_TOKEN_TRACKING_ID:-}" ]]; then
+    echo "Checking tracked non-admin token state after deny-path tests..."
+    aws dynamodb get-item \
+        --table-name token-tracking \
+        --key "{\"token_id\":{\"S\":\"$NON_ADMIN_ID_TOKEN_TRACKING_ID\"}}" \
+        --region "$REGION" \
+        --query "Item.{token_id:token_id.S,status:status.S,used:used.BOOL,updated_at_iso:updated_at_iso.S,last_used_request_id:last_used_request_id.S}" \
+        --output table
+fi
 
 # DynamoDB token-revocation table checks
 echo "Checking token-revocation DynamoDB table for any revoked tokens..."

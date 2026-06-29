@@ -212,3 +212,19 @@ variable "soar_max_tokens" {
   type        = number
   default     = 500
 }
+
+## Models
+
+# SOAR Model is currently: Claude Sonnet 4.6
+variable "bedrock_claude_model_id" {
+  description = "Bedrock model ID for the SOAR module."
+  type        = string
+  default     = "us.anthropic.claude-sonnet-4-6" # if not read remove `us` and set to anthropic.claude-v2 
+}
+
+# WAF Model is currently: Haiku (low cost option)
+variable "bedrock_waf_model_id" {
+  description = "Bedrock model ID for the WAF analysis module."
+  type        = string
+  default     = "anthropic.claude-3-haiku-20240307-v1:0" # if not read remove `us` and set to anthropic.claude-v2 
+}

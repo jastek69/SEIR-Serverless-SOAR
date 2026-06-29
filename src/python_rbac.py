@@ -1,4 +1,5 @@
 import json
+from token_tracking import mark_token_used
 
 def lambda_handler(event, context):
     claims = event.get("requestContext", {}).get("authorizer", {}).get("claims", {})
@@ -19,10 +20,16 @@ def lambda_handler(event, context):
             "body": json.dumps({"error": "Access denied"})
         }
 
+    matched_token_id = mark_token_used(
+        claims,
+        getattr(context, "aws_request_id", None),
+    )
+
     return {
         "statusCode": 200,
         "body": json.dumps({
             "message": "Access granted",
-            "groups": groups
+            "groups": groups,
+            "token_tracking_id": matched_token_id,
         })
     }

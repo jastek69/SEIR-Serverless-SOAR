@@ -52,8 +52,8 @@ resource "aws_dynamodb_table" "dynamoDb_token_tracking" {
   }
 
   # attribute {
-    # name = "issued_at"
-    # type = "N"
+  # name = "issued_at"
+  # type = "N"
   # }
 
   global_secondary_index {

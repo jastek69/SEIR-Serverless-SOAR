@@ -102,7 +102,9 @@ Expected results:
 - If the user is already in `SOFTWARE_TOKEN_MFA`, the script prompts for a current authenticator code and does not generate a new secret.
 - On success, it writes `Reports/admin_tokens.env`, and `source Reports/admin_tokens.env` loads `ID_TOKEN` and `ACCESS_TOKEN`.
 - `--track-token` registers the Cognito ID token's `jti`, hash, issue time, and expiry in DynamoDB without storing the raw JWT.
-- The exported `ID_TOKEN_TRACKING_ID` lets `rbac_test.sh` mark that same JWT record as used after authenticated API calls.
+- Successful authenticated Lambda/API paths now auto-mark that tracked JWT as used when the handler sees the matching `jti` or `origin_jti` claim.
+- `scripts/rbac_test.sh` no longer invokes `update_token_function` as part of the happy path.
+- The exported `ID_TOKEN_TRACKING_ID` remains useful for manual diagnostics or direct `update_token_function` invocation when you want to force a state change outside the normal request path.
 
 ### Option 2: email the MFA secret for authenticator setup
 
@@ -357,6 +359,8 @@ curl -i "$API_NODE_BASE/NodeResource?name=theo" -H "Authorization: $ACCESS_TOKEN
 
 Expected: `200 OK` when the access token has the required API Gateway scope and the Lambda sees admin group membership.
 
+If `ID_TOKEN_TRACKING_ID` is present and maps to the request JWT claims (`jti` or `origin_jti`), the tracked DynamoDB item should transition to `status=used` and `used=true` automatically.
+
 ### 5.5 RBAC deny-path test (non-admin token)
 
 ```bash
@@ -413,6 +417,8 @@ Expected informational results:
 aws dynamodb describe-table --table-name token-tracking --region us-west-2
 aws dynamodb scan --table-name token-tracking --max-items 20 --region us-west-2
 
+aws dynamodb get-item --table-name token-tracking --key "{\"token_id\":{\"S\":\"$ID_TOKEN_TRACKING_ID\"}}" --region us-west-2 --query "Item.{token_id:token_id.S,status:status.S,used:used.BOOL,updated_at_iso:updated_at_iso.S,last_used_request_id:last_used_request_id.S}" --output table
+
 aws dynamodb describe-table --table-name token-revocation --region us-west-2
 aws dynamodb scan --table-name token-revocation --max-items 20 --region us-west-2
 ```
@@ -424,6 +430,10 @@ aws dynamodb query --table-name token-tracking --index-name token-hash-index --k
 ```
 
 ### 5.8 Direct Lambda invocation checks
+
+Successful authenticated API calls now update tracked JWT records automatically. Use the direct invocation below only for manual diagnostics, contract testing, or forced state changes outside the normal API request flow.
+
+`scripts/rbac_test.sh` does not call `update_token_function` for the normal auth flow.
 
 ```bash
 aws lambda invoke --function-name update_token_function --payload '{"body":"{\"token_id\":\"replace_token_id\",\"action\":\"used\"}"}' update-token-response.json --region us-west-2

@@ -208,7 +208,7 @@ resource "aws_iam_policy" "waf_lambda_dynamodb_policy" {
 }
 
 resource "aws_iam_role_policy_attachment" "waf_lambda_dynamodb_policy_attachment" {
-  count      = var.enable_waf && var.waf_log_destination == "cloudwatch" ? 1 : 0  #Gating check to ensure the policy is only attached when WAF is enabled and the log destination is CloudWatch
+  count      = var.enable_waf && var.waf_log_destination == "cloudwatch" ? 1 : 0 #Gating check to ensure the policy is only attached when WAF is enabled and the log destination is CloudWatch
   provider   = aws.us-west-2
   role       = aws_iam_role.lambda_execution_role.name
   policy_arn = aws_iam_policy.waf_lambda_dynamodb_policy[count.index].arn

@@ -212,8 +212,9 @@ Find:
     /aws/lambda/chewbacca-python-lambda
     /aws/lambda/chewbacca-node-lambda
 
+___
 
-    # API Gateway Throttling
+# API Gateway Throttling
 [Throttle requests with REST APIs](https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-request-throttling.html)
 [Terraform - Throttling](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/api_gateway_method_settings)
 

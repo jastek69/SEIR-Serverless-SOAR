@@ -1,4 +1,52 @@
-exports.handler = async (event) => {
+const { DynamoDBClient, UpdateItemCommand } = require("@aws-sdk/client-dynamodb");
+
+const TRACKING_TABLE = process.env.TOKEN_TRACKING_TABLE || "token-tracking";
+const dynamodb = new DynamoDBClient({});
+
+function utcIsoNow() {
+    return new Date().toISOString();
+}
+
+async function markTokenUsed(claims, requestId) {
+    const tokenIds = [];
+    for (const key of ["jti", "origin_jti"]) {
+        const value = claims?.[key];
+        if (value && !tokenIds.includes(value)) {
+            tokenIds.push(value);
+        }
+    }
+
+    for (const tokenId of tokenIds) {
+        try {
+            await dynamodb.send(new UpdateItemCommand({
+                TableName: TRACKING_TABLE,
+                Key: {
+                    token_id: { S: tokenId },
+                },
+                UpdateExpression: "SET #s = :s, used = :u, updated_at_iso = :t, last_used_request_id = :r",
+                ConditionExpression: "attribute_exists(token_id)",
+                ExpressionAttributeNames: {
+                    "#s": "status",
+                },
+                ExpressionAttributeValues: {
+                    ":s": { S: "used" },
+                    ":u": { BOOL: true },
+                    ":t": { S: utcIsoNow() },
+                    ":r": { S: requestId || "unknown-request" },
+                },
+            }));
+            return tokenId;
+        } catch (error) {
+            if (error.name !== "ConditionalCheckFailedException") {
+                throw error;
+            }
+        }
+    }
+
+    return null;
+}
+
+exports.handler = async (event, context) => {
     console.log("Incoming event:", JSON.stringify(event));
 
     const name = event.queryStringParameters?.name || "Unknown";
@@ -23,6 +71,12 @@ exports.handler = async (event) => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ message: "Access denied: admin group required" }),
         };
+    }
+
+    const claims = event.requestContext?.authorizer?.claims || {};
+    const matchedTokenId = await markTokenUsed(claims, context.awsRequestId);
+    if (matchedTokenId) {
+        response.token_tracking_id = matchedTokenId;
     }
 
     console.log("Response:", JSON.stringify(response));

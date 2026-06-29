@@ -1,6 +1,8 @@
 import json
 from datetime import datetime
 
+from token_tracking import mark_token_used
+
 
 def lambda_handler(event, context):
     print("Incoming event:", json.dumps(event))
@@ -35,6 +37,13 @@ def lambda_handler(event, context):
             "headers": {"Content-Type": "application/json"},
             "body": json.dumps({"message": "Access denied: admin group required"}),
         }
+
+    matched_token_id = mark_token_used(
+        claims,
+        getattr(context, "aws_request_id", None),
+    )
+    if matched_token_id:
+        response["token_tracking_id"] = matched_token_id
     
     print("Response:", json.dumps(response))
 

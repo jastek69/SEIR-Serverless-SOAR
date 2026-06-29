@@ -1,6 +1,8 @@
 import base64
 import json
 
+from token_tracking import mark_token_used
+
 # ==================================================
 # JWT Decode Function
 # ==================================================
@@ -54,6 +56,7 @@ def lambda_handler(event, context):
         }
 
     groups = _normalize_groups(decoded.get("cognito:groups", []))
+    matched_token_id = mark_token_used(decoded, getattr(context, "aws_request_id", None))
     return {
         "statusCode": 200,
         "body": json.dumps(
@@ -61,6 +64,7 @@ def lambda_handler(event, context):
                 "username": decoded.get("username", "NOT FOUND"),
                 "email": decoded.get("email", "NOT FOUND"),
                 "groups": groups,
+                "token_tracking_id": matched_token_id,
             }
         ),
     }

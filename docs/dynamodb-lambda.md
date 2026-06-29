@@ -747,6 +747,15 @@ API Authorization:
 
 ### DynamoDB Global Tables
 
+Note
+`Partition Key` (`PK`) of an item is also known as its `hash attribute` . The term “hash attribute” derives from DynamoDB’s usage of an internal hash function to evenly distribute data items across partitions, based on their partition key values.
+
+`Primary Key` Restrictions: You cannot use a boolean data type for any attribute defined in your primary key (Partition Key or Sort Key). Key schemas are strictly constrained to scalar types: String (S), Number (N), or Binary (B)
+
+`Sort Key` (`SK`) of an item is also known as its range attribute . The term “range attribute” derives from the way DynamoDB stores items with the same partition key physically close together, in sorted order by the sort key value.
+
+
+
 key attributes and non-key attributes
 - `key_schema` is only for table primary key and GSI keys.
 - Key attributes (table PK and index keys) support only scalar key types (S, N, B) and must be stable query keys. If `used` is in any `key schema`, it cannot be a boolean BOOL. BOOL values are not good state keys
@@ -786,6 +795,7 @@ Important characteristics:
 - Simultaneous writes to the same item in different Regions use last-writer-wins conflict resolution.
 - Cross-Region replication adds cost for replicated writes, storage, and data transfer.
 
+
 ### DynamoDB Schema and Read Consistency in This Project
 
 This project uses DynamoDB in a way that combines key-based lookups and non-key metadata filtering.
@@ -803,6 +813,7 @@ Read consistency notes for this configuration:
 - GSI reads are eventually consistent only.
 - Because detector and reporting flows use GSIs (for example `status-expiry-index` and `token-hash-index`), a recent write may take a short time to appear in index query results.
 - This is expected behavior and should be considered in workflows that read immediately after writes.
+
 
 ### Important Considerations for GSI:
 Where GSIs help:
@@ -846,8 +857,10 @@ Where GSIs help:
 2. Use immutable event logs/ledger for “prove and audit”.
 
 
+
 References:
 - [DynamoDB Global Tables](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GlobalTables.html)
+- [DynamoDB Describe Table](https://docs.aws.amazon.com/cli/latest/reference/dynamodb/describe-table.html)
 - [DynamoDB GSIs](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GSI.html)
 - [DynamoDB Schemaless](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/SQLtoNoSQL.CreateTable.html)
 - [DynamoDB Table Constraints](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Constraints.html)

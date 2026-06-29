@@ -247,7 +247,7 @@ resource "aws_lambda_function" "taaops_ir_lambda" {
       WAF_LOG_GROUP      = "aws-waf-logs-${var.project_name}-taaops-regional-waf" # Regional WAF log group
       # SECRET_ID         = "${var.project_name}/rds/mysql"                       # Reserved for a future database-backed configuration
       SSM_PARAM_PATH      = "/lab/db/"                                   # Parameter Store path for DB config
-      BEDROCK_MODEL_ID    = "us.anthropic.claude-sonnet-4-6"             # Bedrock model ID (optional)
+      BEDROCK_MODEL_ID    = var.bedrock_claude_model_id                  # Bedrock model ID (optional)
       SNS_TOPIC_ARN       = aws_sns_topic.taaops_ir_reports_topic.arn    # SNS topic for "Report Ready"
       AUTOMATION_DOC_NAME = "${var.project_name}-taaops-incident-report" # SSM automation document
     }
@@ -293,7 +293,7 @@ resource "aws_bedrockagent_prompt" "soar" {
 
   variant {
     name     = "soar-default"
-    model_id = "anthropic.claude-v4.6"
+    model_id = var.bedrock_claude_model_id
 
     inference_configuration {
       text {
@@ -329,7 +329,7 @@ EOT
 
   variant {
     name     = "soar-experimental"
-    model_id = "anthropic.claude-3-opus-20240229-v1:0"
+    model_id = var.bedrock_claude_model_id
 
     inference_configuration {
       text {
@@ -377,14 +377,14 @@ resource "aws_lambda_function" "waf_bedrock_analyzer" {
 
   environment {
     variables = {
-      DYNAMODB_TABLE                           = aws_dynamodb_table.dynamoDb_waf_events.name
-      WAF_LOG_GROUP                            = "aws-waf-logs-${var.project_name}-cloudfront-waf"
-      BEDROCK_MODEL_ID                         = "anthropic.claude-3-haiku-20240307-v1:0"
-      WAF_BEDROCK_ANALYZER_PROMPT_PARAM_NAME  = aws_ssm_parameter.waf_bedrock_analyzer_prompt.name
-      WAF_BEDROCK_ANALYZER_MAX_OUTPUT_TOKENS  = "300"
-      WAF_BEDROCK_ANALYZER_TEMPERATURE        = "0.3"
-      WAF_BEDROCK_ANALYZER_RISK_FOCUS         = "all"
-      WAF_BEDROCK_ANALYZER_GENERATE_ON_EMPTY  = "true"
+      DYNAMODB_TABLE                         = aws_dynamodb_table.dynamoDb_waf_events.name
+      WAF_LOG_GROUP                          = "aws-waf-logs-${var.project_name}-cloudfront-waf"
+      BEDROCK_MODEL_ID                       = var.bedrock_waf_model_id
+      WAF_BEDROCK_ANALYZER_PROMPT_PARAM_NAME = aws_ssm_parameter.waf_bedrock_analyzer_prompt.name
+      WAF_BEDROCK_ANALYZER_MAX_OUTPUT_TOKENS = "300"
+      WAF_BEDROCK_ANALYZER_TEMPERATURE       = "0.3"
+      WAF_BEDROCK_ANALYZER_RISK_FOCUS        = "all"
+      WAF_BEDROCK_ANALYZER_GENERATE_ON_EMPTY = "true"
     }
   }
 }

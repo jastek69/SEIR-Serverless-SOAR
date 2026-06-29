@@ -101,6 +101,12 @@ resource "aws_lambda_function" "node_lambda" {
 
   runtime = "nodejs24.x"
 
+  environment {
+    variables = {
+      TOKEN_TRACKING_TABLE = aws_dynamodb_table.dynamoDb_token_tracking.name
+    }
+  }
+
   /*
   environment {
     variables = {
@@ -122,7 +128,7 @@ resource "aws_lambda_function" "node_lambda" {
 
 data "archive_file" "python_lambda" {
   type        = "zip"
-  source_file = "./src/python_lambda.py"
+  source_dir  = "./src"
   output_path = "./lambda/python_lambda.zip"
 }
 
@@ -136,6 +142,12 @@ resource "aws_lambda_function" "python_lambda" {
   code_sha256   = data.archive_file.python_lambda.output_base64sha256
 
   runtime = "python3.9"
+
+  environment {
+    variables = {
+      TOKEN_TRACKING_TABLE = aws_dynamodb_table.dynamoDb_token_tracking.name
+    }
+  }
 
   /*
   environment {
@@ -179,7 +191,7 @@ resource "aws_lambda_function" "get_token" {
 # RBAC
 data "archive_file" "python_rbac" {
   type        = "zip"
-  source_file = "./src/python_rbac.py"
+  source_dir  = "./src"
   output_path = "./lambda/python_rbac.zip"
 }
 
@@ -191,6 +203,12 @@ resource "aws_lambda_function" "python_rbac" {
   code_sha256   = data.archive_file.python_rbac.output_base64sha256
 
   runtime = "python3.9"
+
+  environment {
+    variables = {
+      TOKEN_TRACKING_TABLE = aws_dynamodb_table.dynamoDb_token_tracking.name
+    }
+  }
 }
 
 /*
@@ -234,7 +252,7 @@ resource "aws_lambda_function" "immediate_rbac_check_66" {
 
 data "archive_file" "verify_groups" {
   type        = "zip"
-  source_file = "./src/verify_groups.py"
+  source_dir  = "./src"
   output_path = "./lambda/verify_groups.zip"
 }
 
@@ -251,6 +269,7 @@ resource "aws_lambda_function" "verify_groups" {
 
   environment {
     variables = {
+      TOKEN_TRACKING_TABLE = aws_dynamodb_table.dynamoDb_token_tracking.name
       COGNITO_USER_POOL_ID = var.cognito_user_pool_id != "" ? var.cognito_user_pool_id : aws_cognito_user_pool.cognito_rbac_pool.id
     }
   }
@@ -304,7 +323,7 @@ resource "aws_lambda_function" "unused_token_detector" {
       UNUSED_TOKEN_ALERT_TOPIC_ARN   = aws_sns_topic.unused_token_alerts.arn
       UNUSED_TOKEN_THRESHOLD_MINUTES = "15"
       TRANSLATION_BUCKET             = module.taaops_translation.input_bucket_name
-      BEDROCK_MODEL_ID               = "us.anthropic.claude-sonnet-4-6"
+      BEDROCK_MODEL_ID               = var.bedrock_claude_model_id
       SOAR_PROMPT_PARAM_NAME         = "/bedrock/soar-prompt"
       SOAR_MAX_OUTPUT_TOKENS         = "300"
       SOAR_TEMPERATURE               = "0.3"
@@ -383,6 +402,16 @@ resource "aws_iam_role_policy" "unused_token_detector_access" {
         ]
         Resource = [
           "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/bedrock/soar-prompt"
+        ]
+      },
+      {
+        Sid    = "AllowBedrockInvokeModel"
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameter"
+        ]
+        Resource = [
+          "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/bedrock/waf-bedrock-analyzer-prompt"
         ]
       }
     ]
