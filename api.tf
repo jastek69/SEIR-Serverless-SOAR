@@ -74,7 +74,7 @@ resource "aws_api_gateway_method" "PythonMethod" {
   http_method          = "GET"
   authorization        = "COGNITO_USER_POOLS"
   authorizer_id        = aws_api_gateway_authorizer.python_cognito.id
-  authorization_scopes = ["${aws_cognito_resource_server.rbac_api_resource_server.identifier}/admin"]
+  authorization_scopes = ["${aws_cognito_resource_server.rbac_api_resource_server.identifier}/admin", "${aws_cognito_resource_server.rbac_api_resource_server.identifier}/user"]
 }
 
 
@@ -97,18 +97,14 @@ resource "aws_api_gateway_deployment" "PythonDeployment" {
   rest_api_id = aws_api_gateway_rest_api.PythonAPI.id
 
   triggers = {
-    # NOTE: The configuration below will satisfy ordering considerations,
-    #       but not pick up all future REST API changes. More advanced patterns
-    #       are possible, such as using the filesha1() function against the
-    #       Terraform configuration file(s) or removing the .id references to
-    #       calculate a hash against whole resources. Be aware that using whole
-    #       resources will show a difference after the initial implementation.
-    #       It will stabilize to only change when resources change afterwards.
-    redeployment = sha1(jsonencode([
-      aws_api_gateway_resource.PythonResource.id,
-      aws_api_gateway_method.PythonMethod.id,
-      aws_api_gateway_integration.PythonIntegration.id,
-    ]))
+    # Hashes the whole method/integration resources (not just their .id, which
+    # doesn't change on in-place attribute updates like authorization_scopes)
+    # so any config change actually forces a new deployment.
+    redeployment = sha1(jsonencode({
+      resource    = aws_api_gateway_resource.PythonResource
+      method      = aws_api_gateway_method.PythonMethod
+      integration = aws_api_gateway_integration.PythonIntegration
+    }))
   }
 
   lifecycle {
@@ -186,7 +182,7 @@ resource "aws_api_gateway_method" "NodeMethod" {
   http_method          = "GET"
   authorization        = "COGNITO_USER_POOLS"
   authorizer_id        = aws_api_gateway_authorizer.node_cognito.id
-  authorization_scopes = ["rbac-api/admin"]
+  authorization_scopes = ["rbac-api/admin", "rbac-api/user"]
 }
 
 
@@ -209,18 +205,14 @@ resource "aws_api_gateway_deployment" "NodeDeployment" {
   rest_api_id = aws_api_gateway_rest_api.NodeAPI.id
 
   triggers = {
-    # NOTE: The configuration below will satisfy ordering considerations,
-    #       but not pick up all future REST API changes. More advanced patterns
-    #       are possible, such as using the filesha1() function against the
-    #       Terraform configuration file(s) or removing the .id references to
-    #       calculate a hash against whole resources. Be aware that using whole
-    #       resources will show a difference after the initial implementation.
-    #       It will stabilize to only change when resources change afterwards.
-    redeployment = sha1(jsonencode([
-      aws_api_gateway_resource.NodeResource.id,
-      aws_api_gateway_method.NodeMethod.id,
-      aws_api_gateway_integration.NodeIntegration.id,
-    ]))
+    # Hashes the whole method/integration resources (not just their .id, which
+    # doesn't change on in-place attribute updates like authorization_scopes)
+    # so any config change actually forces a new deployment.
+    redeployment = sha1(jsonencode({
+      resource    = aws_api_gateway_resource.NodeResource
+      method      = aws_api_gateway_method.NodeMethod
+      integration = aws_api_gateway_integration.NodeIntegration
+    }))
   }
 
   lifecycle {

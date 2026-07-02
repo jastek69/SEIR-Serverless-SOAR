@@ -27,6 +27,7 @@ SOAR_GENERATE_ON_EMPTY = os.environ.get("SOAR_GENERATE_ON_EMPTY", "true").strip(
     "yes",
     "on",
 }
+REVOKE_TOKEN_FUNCTION_NAME = os.environ.get("REVOKE_TOKEN_FUNCTION_NAME", "revoke_token_function")
 
 dynamodb = boto3.resource("dynamodb")
 tracking = dynamodb.Table(TRACKING_TABLE)
@@ -34,6 +35,7 @@ sns = boto3.client("sns")
 s3 = boto3.client("s3")
 bedrock = boto3.client("bedrock-runtime")
 ssm = boto3.client("ssm")
+lambda_client = boto3.client("lambda")
 
 
 def _parse_iso(value: str) -> datetime:
@@ -303,6 +305,23 @@ def _publish_unused_token_alert(item: dict, age_minutes: int) -> None:
     )
 
 
+def _revoke_stale_tokens(token_ids: list) -> dict:
+    if not token_ids:
+        return {"invoked": False, "deleted_count": 0}
+
+    try:
+        response = lambda_client.invoke(
+            FunctionName=REVOKE_TOKEN_FUNCTION_NAME,
+            InvocationType="RequestResponse",
+            Payload=json.dumps({"token_ids": token_ids}).encode("utf-8"),
+        )
+        payload = json.loads(response["Payload"].read().decode("utf-8"))
+        body = json.loads(payload.get("body", "{}")) if isinstance(payload.get("body"), str) else {}
+        return {"invoked": True, "deleted_count": body.get("deleted_count", 0)}
+    except Exception as exc:
+        return {"invoked": True, "error": str(exc), "deleted_count": 0}
+
+
 def lambda_handler(event, context):
     event = event if isinstance(event, dict) else {}
     now = datetime.now(timezone.utc)
@@ -416,6 +435,10 @@ def lambda_handler(event, context):
         soar_markdown = _build_soar_markdown(report, findings, bedrock_summary)
         soar_key, evidence_key = _upload_soar_artifacts(report, soar_markdown)
 
+    # Revoke exactly the rows just scanned/alerted/reported on - never an
+    # independent age-based scan here, so cleanup can't race the alert threshold.
+    revoke_result = _revoke_stale_tokens([item["token_id"] for item in findings])
+
     return {
         "statusCode": 200,
         "body": json.dumps(
@@ -429,6 +452,8 @@ def lambda_handler(event, context):
                 "soar_key": soar_key,
                 "soar_evidence_key": evidence_key,
                 "threshold_minutes": UNUSED_TOKEN_THRESHOLD_MINUTES,
+                "revoke_invoked": revoke_result.get("invoked", False),
+                "revoked_count": revoke_result.get("deleted_count", 0),
             }
         ),
     }

@@ -226,5 +226,5 @@ variable "bedrock_claude_model_id" {
 variable "bedrock_waf_model_id" {
   description = "Bedrock model ID for the WAF analysis module."
   type        = string
-  default     = "anthropic.claude-3-haiku-20240307-v1:0" # if not read remove `us` and set to anthropic.claude-v2 
+  default     = "us.anthropic.claude-haiku-4-5-20251001-v1:0" # if not read remove `us` and set to anthropic.claude-v2 
 }

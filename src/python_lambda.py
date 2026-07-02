@@ -29,7 +29,10 @@ def lambda_handler(event, context):
     else:
         groups = []
 
-    if "admin" in groups:
+    scopes = claims.get("scope", "").split()
+    is_admin = "admin" in groups or "rbac-api/admin" in scopes
+
+    if is_admin:
         response["role"] = "admin"
     else:
         return {

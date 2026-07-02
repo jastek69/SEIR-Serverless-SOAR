@@ -159,7 +159,7 @@ Test:
 
 🏁 Exit Criteria
 
-Student passes when:
+Metrics to meet:
 
 ✔ WAF created
 ✔ Attached to API Gateway
@@ -167,3 +167,180 @@ Student passes when:
 ✔ Rate limit configured
 ✔ Can trigger a block
 ✔ Can explain flow
+
+
+## A Lambda, a WAF, a DynamoDB walk into a bar
+1. Waf Logs are sent to CloudWatch
+2. Lambda reads last few minutes of CloudWatch WAF logs
+3. Lambda extracts the following:
+```
+ source IP
+ country
+ URI
+ HTTP method
+ WAF action
+ terminating rule
+ ```
+ 4. Lambda send thosee details to Bedrock
+ 5. Bedrock returns a SOC-style summary
+  .5a Summary sent to S3 for translation
+ 6. Lambda prints the summary to CloudWatch
+  6a. Lambda sends the summary to S3 for translation
+7. Lambda sends WAF events to DynamoDB for tracking
+
+
+Lambda enhancement:
+
+Lambda Execution Role
+```
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": [
+            "logs:FilterLogEvents"
+          ],
+          "Resource": "*"
+        },
+        {
+          "Effect": "Allow",
+          "Action": [
+            "bedrock:InvokeModel"
+          ],
+          "Resource": "*"
+        },
+       {
+         "Effect": "Allow",
+         "Action": [
+           "dynamodb:PutItem"
+         ],
+         "Resource": "arn:aws:dynamodb:<region>:<account-id>:table/waf-events"
+        }
+      ]
+    }
+```
+
+
+
+Add DynamoDB client:
+```
+dynamodb = boto3.resource("dynamodb")          
+table = dynamodb.Table("waf-events")
+```
+
+Store Event - inside processing loop:
+```
+import uuid
+
+  table.put_item(
+     Item={
+       "event_id": str(uuid.uuid4()),
+       "timestamp": str(waf_summary["timestamp"]),
+        "source_ip": waf_summary["client_ip"],
+        "country": waf_summary["country"],
+        "uri": waf_summary["uri"],
+        "method": waf_summary["method"],
+        "action": waf_summary["action"],
+        "rule": waf_summary["terminating_rule_id"]
+         }
+)
+
+```
+
+DynamoDB Table Design - a new Table
+- Table: waf-events
+- Partition Key: event_id Type: String
+
+DynamoDB Waf Event Table output:
+```JSON
+    {
+      "event_id": "123456",
+      "timestamp": "2026-06-23T18:00:00Z",
+      "source_ip": "1.2.3.4",
+      "country": "RU",
+      "uri": "/python",
+      "method": "GET",
+      "action": "BLOCK",
+      "rule": "AWSManagedRulesCommonRuleSet"
+    }
+```
+
+## Testing
+
+Resources:
+
+ENV Variables
+```
+WAF_LOG_GROUP=/aws/waf/chewbacca-waf BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0 LOOKBACK_MINUTES=10
+```
+
+WAF Lambda: `waf_bedrock_analyzer.py`
+
+Test Flow:
+
+1. Generate a WAF event: Use the API endpoint and send something suspicious:
+```
+ curl "https://<api-id>.execute-api.<region>.amazonaws.com/prod/python?name=<script>alert(1)</script>"
+```
+Expected result: 403 Forbidden
+
+2. Invoke the analyzer Lambda
+3. Check analyzer logs ---> Go to: CloudWatch Logs → /aws/lambda/waf-bedrock-analyzer
+
+Expected output:
+
+    Structured WAF Event:
+    {
+      "action": "BLOCK",
+      "client_ip": "...",
+      "uri": "/prod/python",
+      "terminating_rule_id": "..."
+    }
+    
+    ===== BEDROCK SOC SUMMARY =====
+    Severity:
+    Possible Attack Type:
+    Why This Was Flagged:
+    Recommended Analyst Actions:
+    Short Executive Summary:
+
+WAF Telemetry Database
+
+Objective:
+Store WAF security events in DynamoDB so they can later be:
+
+    searched
+    correlated
+    enriched
+    analyzed by Bedrock
+    used for SOAR workflows
+
+Concept:
+CloudWatch Logs are excellent for:
+
+    troubleshooting
+    operational visibility
+
+But terrible for:
+
+    correlation
+    analytics
+    threat history
+
+
+From Part A we have: Current State---> WAF Event → CloudWatch
+
+New State:
+
+    WAF Event
+    → CloudWatch Log
+    → Lambda Parser
+    → DynamoDB
+
+## DynaoDB Purpose:
+Imagine: IP 1.2.3.4 hits your API: Monday: XSS attempt Tuesday: SQL Injection Wednesday: Credential stuffing Thursday: Lizzo Injection
+
+CloudWatch sees: individual events.
+DynamoDB lets us build: Attack History
+

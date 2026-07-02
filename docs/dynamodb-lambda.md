@@ -891,5 +891,106 @@ This stack creates the Cognito RBAC user pool locally in `cognito.tf`.
 API Gateway authorizers in `api.tf` trust `aws_cognito_user_pool.cognito_rbac_pool.arn` directly.
 
 # WAF Bedrcok Analyzer
+see WAF.md
+
+
+## A Lambda, a WAF, a DynamoDB walk into a bar
+1. Waf Logs are sent to CloudWatch
+2. Lambda reads last few minutes of CloudWatch WAF logs
+3. Lambda extracts the following:
+```
+ source IP
+ country
+ URI
+ HTTP method
+ WAF action
+ terminating rule
+ ```
+ 4. Lambda send thosee details to Bedrock
+ 5. Bedrock returns a SOC-style summary
+  .5a Summary sent to S3 for translation
+ 6. Lambda prints the summary to CloudWatch
+  6a. Lambda sends the summary to S3 for translation
+7. Lambda sends WAF events to DynamoDB for tracking
+
+
+Lambda enhancement:
+
+Lambda Execution Role
+```
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": [
+            "logs:FilterLogEvents"
+          ],
+          "Resource": "*"
+        },
+        {
+          "Effect": "Allow",
+          "Action": [
+            "bedrock:InvokeModel"
+          ],
+          "Resource": "*"
+        },
+       {
+         "Effect": "Allow",
+         "Action": [
+           "dynamodb:PutItem"
+         ],
+         "Resource": "arn:aws:dynamodb:<region>:<account-id>:table/waf-events"
+        }
+      ]
+    }
+```
+
+
+
+Add DynamoDB client:
+```
+dynamodb = boto3.resource("dynamodb")          
+table = dynamodb.Table("waf-events")
+```
+
+Store Event - inside processing loop:
+```
+import uuid
+
+  table.put_item(
+     Item={
+       "event_id": str(uuid.uuid4()),
+       "timestamp": str(waf_summary["timestamp"]),
+        "source_ip": waf_summary["client_ip"],
+        "country": waf_summary["country"],
+        "uri": waf_summary["uri"],
+        "method": waf_summary["method"],
+        "action": waf_summary["action"],
+        "rule": waf_summary["terminating_rule_id"]
+         }
+)
+
+```
+
+DynamoDB Table Design - a new Table
+- Table: waf-events
+- Partition Key: event_id Type: String
+
+DynamoDB Waf Event Table output:
+```JSON
+    {
+      "event_id": "123456",
+      "timestamp": "2026-06-23T18:00:00Z",
+      "source_ip": "1.2.3.4",
+      "country": "RU",
+      "uri": "/python",
+      "method": "GET",
+      "action": "BLOCK",
+      "rule": "AWSManagedRulesCommonRuleSet"
+    }
+```
+
+
 
 ## Glossary

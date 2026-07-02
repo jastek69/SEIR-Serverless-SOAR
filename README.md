@@ -243,99 +243,7 @@ If you use Git Bash on Windows, slash-prefixed AWS values (like `/aws/lambda/...
 - List Lambda log groups:
     `MSYS_NO_PATHCONV=1 aws logs describe-log-groups --log-group-name-prefix '/aws/lambda/' --region us-west-2 --query "logGroups[].logGroupName" --output table`
 
-### Lambda
 
-- Smoke test (creates log group if it doesn't exist; expect a JS error on empty payload, not an import error):
-    `aws lambda invoke --function-name image_processor --region us-west-2 --payload '{}' response.json && cat response.json`
-
-- Invoke function using payload file:
-    `aws lambda invoke --function-name image_processor --region us-west-2 --payload fileb://event.json response.json`
-
-- Get function configuration:
-    `aws lambda get-function-configuration --function-name image_processor`
-
-- Get Lambda resource policy:
-    `aws lambda get-policy --function-name image_processor`
-
-### S3 image resizing test flow
-
-1. Upload a test image to source bucket:
-    `aws s3 cp ./images/test_images/sample.jpg s3://sourcebucket-nxh00b/sample.jpg`
-
-2. Verify output appears in destination bucket:
-     `aws s3 ls s3://destinationbucket-nxh00b --recursive`
-
-3. Download processed image:
-    `aws s3 cp s3://destinationbucket-nxh00b/sample.jpg ./images/test_images/resized-sample.jpg`
-
-4. Verify S3 notification config:
-     `aws s3api get-bucket-notification-configuration --bucket sourcebucket-nxh00b`
-
-### Terraform + deployed IDs
-
-- Show outputs:
-    `terraform output -no-color`
-
-- Show one output value:
-    `terraform output -raw lambda_function_arn`
-
-### Debug helpers
-
-- Confirm AWS identity:
-    `aws sts get-caller-identity`
-
-- Confirm configured region:
-    `aws configure get region`
-
-- Enable detailed CLI debug output:
-    `aws <service> <command> --debug`
-
-### PowerShell alternative
-
-If Git Bash still rewrites paths, run AWS commands in PowerShell:
-`aws logs tail "/aws/lambda/image_processor" --since 10m --follow`
-
-## Quick Start Test (Current Deployment)
-
-Use these exact values from your current Terraform state/output:
-
-- Lambda function: `image_processor`
-- Source bucket: `sourcebucket-nxh00b`
-- Destination bucket: `destinationbucket-nxh00b`
-
-### 0) Smoke test the Lambda (creates the log group)
-
-`aws lambda invoke --function-name image_processor --region us-west-2 --payload '{}' response.json && cat response.json`
-
-> Expected: `FunctionError: Unhandled` with a JS-level error (missing `event.Records`). This is normal for an empty payload — it confirms the runtime is working. An `ImportModuleError` means the zip or runtime is misconfigured.
-
-### 1) Start Lambda logs (Git Bash-safe)
-
-`MSYS_NO_PATHCONV=1 aws logs tail '/aws/lambda/image_processor' --region us-west-2 --since 10m --follow`
-
-Optional: confirm the log group exists (Git Bash-safe):
-
-`MSYS_NO_PATHCONV=1 aws logs describe-log-groups --log-group-name-prefix '/aws/lambda/' --region us-west-2 --query "logGroups[?contains(logGroupName, 'image_processor')].logGroupName" --output text`
-
-### 2) Upload a test image to source bucket
-
-`aws s3 cp ./images/test_images/sample.jpg s3://sourcebucket-nxh00b/sample.jpg`
-
-### 3) Check destination bucket for output
-
-`aws s3 ls s3://destinationbucket-nxh00b --recursive`
-
-### 4) Download the resized image
-
-`aws s3 cp s3://destinationbucket-nxh00b/sample.jpg ./images/test_images/resized-sample.jpg`
-
-### 5) Verify S3 trigger wiring
-
-`aws s3api get-bucket-notification-configuration --bucket sourcebucket-nxh00b`
-
-### 6) Verify Lambda invoke permission for S3
-
-`aws lambda get-policy --function-name image_processor`
 
 ## CloudWatch
 
@@ -2613,6 +2521,8 @@ Resource: target Lambda function
 This is usually implemented with aws_lambda_permission.
 
 ### EventBridge Scheduler Role
+Event Bridge schedule - detection.py
+
 
 EventBridge Scheduler needs permission to invoke the unused-token detector Lambda on schedule.
 
@@ -2740,11 +2650,38 @@ Can EventBridge invoke Lambda?
 Can API Gateway invoke Lambda?
 ```
 
-# EventBridge
-
-# GLOSSARY
 
 ### DynamoDB Global Tables
+ DynamoDB
+ 
+ Each token gets tracked
+```
+{
+  "token_id": "abc123",
+  "username": "student1",
+  "issued_at": "2026-05-19T20:00:00Z",
+  "used": false
+}
+```
+
+After successful authentication
+easier_get_token.py
+detection.py
+EventBrige Rule every 10 minutes
+
+
+Flow
+ easier_get_token.py - after a successful authnetication it sohuld write to DynamoDB > update_token.py should mark a token as used, > unused_token_detector.py should find tokens and see if they are used = false and older than 10 minutes. Added detection.py which should detect if a token is used or not and is scheduled to run via EventBridge.
+     EventBridge
+    Rules
+    Create Rule
+
+    Name: unused-token-check
+    Rule Type: Schedule
+    Schedule: rate(10 minutes)
+    Target: unused-token-detector Lambda
+
+
 
 DynamoDB Global Tables are a multi-Region replication feature. They allow applications to read and write in multiple Regions while DynamoDB asynchronously replicates items between replica tables.
 
@@ -2879,3 +2816,7 @@ References:
 [WAF Rule Groups](https://docs.aws.amazon.com/waf/latest/developerguide/aws-managed-rule-groups-list.html)
 [WAF AWS Managed Rule](https://docs.aws.amazon.com/waf/latest/developerguide/aws-managed-rule-groups.html)
 [WAF DDOS](https://docs.aws.amazon.com/waf/latest/developerguide/aws-managed-rule-groups-anti-ddos.html)
+
+
+# MODELS
+[Haiku listing](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-haiku-4-5.html#model-card-anthropic-claude-haiku-4-5-regional-availability)

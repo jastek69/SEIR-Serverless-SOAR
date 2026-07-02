@@ -79,6 +79,15 @@ resource "aws_cognito_user_pool_client" "cognito_rbac_pool_client" {
   ]
   callback_urls = ["https://localhost/callback"] # Required for OAuth flows, even if not used in this example
   logout_urls   = ["https://localhost/logout"]   # Required for OAuth flows, even if not used in this example
+
+  supported_identity_providers = ["COGNITO"]
+}
+
+# Domain for the Cognito User Pool, required for OAuth flows. This can be a Cognito hosted domain or a custom domain if you have a Route53 zone.
+
+resource "aws_cognito_user_pool_domain" "cognito_rbac_pool_domain" {
+  domain       = "rbac-user-pool-domain" # Change this to a unique domain prefix https://your-domain-prefix.auth.us-west-2.amazoncognito.com
+  user_pool_id = aws_cognito_user_pool.cognito_rbac_pool.id
 }
 
 

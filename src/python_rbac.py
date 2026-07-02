@@ -11,13 +11,20 @@ def lambda_handler(event, context):
     else:
         groups = []
 
-    path = event.get("resource")
+    scopes = claims.get("scope", "").split()
+    is_admin = "admin" in groups or "rbac-api/admin" in scopes
 
-    # RBAC logic
-    if path == "/node" and "admin" not in groups:
+    # RBAC logic: reports whether the supplied token's claims grant admin
+    # access, regardless of resource path, since this function is invoked
+    # directly to test token/group/scope handling rather than through API Gateway.
+    if not is_admin:
         return {
             "statusCode": 403,
-            "body": json.dumps({"error": "Access denied"})
+            "body": json.dumps({
+                "error": "Access denied",
+                "groups": groups,
+                "scopes": scopes,
+            })
         }
 
     matched_token_id = mark_token_used(
@@ -30,6 +37,7 @@ def lambda_handler(event, context):
         "body": json.dumps({
             "message": "Access granted",
             "groups": groups,
+            "scopes": scopes,
             "token_tracking_id": matched_token_id,
         })
     }

@@ -97,3 +97,9 @@ output "cognito_user_issuer_url" {
   value       = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.cognito_rbac_pool.id}"
   description = "OIDC issuer URL for user pool"
 }
+
+
+output "cognito_hosted_ui_domain" {
+  value       = "https://${aws_cognito_user_pool_domain.cognito_rbac_pool_domain.domain}.auth.${var.region}.amazoncognito.com"
+  description = "Cognito Hosted UI base URL for the Authorization Code + PKCE flow"
+}

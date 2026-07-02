@@ -3,6 +3,7 @@
 Use this runbook to validate Cognito authentication, RBAC allow/deny behavior, WAF protection, and supporting AWS resources.
 
 ## Overall Flow
+Flow: 1 (create users) → 2 (app client) → 3 (MFA enrollment for both users, including the user.test repeat) → 4 (OAuth scope-bearing tokens) → 4.1 (refresh) → 5 (run tests)
 
 1. Create Cognito users and groups.
 2. Ensure app client settings and environment variables are correct.
@@ -15,6 +16,8 @@ Use this runbook to validate Cognito authentication, RBAC allow/deny behavior, W
 
 Create at least one admin user and one non-admin user in the user pool used by API auth.
 
+The `admin` and `user` groups themselves do **not** need to be created manually — `terraform apply` already creates them declaratively via `aws_cognito_user_group.admin`/`.user` in cognito.tf, as part of standing up the pool. If you run a `create-group` call anyway, expect `GroupExistsException`; that's harmless, not a sign anything is wrong.
+
 ```bash
 export AWS_REGION="us-west-2"
 export USER_POOL_ID="$(terraform output -raw cognito_user_pool_id)"
@@ -22,9 +25,6 @@ export ADMIN_POOL_ID="$(terraform output -raw cognito_admin_user_pool_id)"
 
 echo "$USER_POOL_ID"
 echo "$ADMIN_POOL_ID"
-
-aws cognito-idp create-group --user-pool-id "$USER_POOL_ID" --group-name admin --region "$AWS_REGION"
-aws cognito-idp create-group --user-pool-id "$USER_POOL_ID" --group-name user --region "$AWS_REGION"
 
 aws cognito-idp admin-create-user --user-pool-id "$USER_POOL_ID" --username admin.test --user-attributes Name=email,Value=admin.test@example.com Name=email_verified,Value=true --message-action SUPPRESS --region "$AWS_REGION"
 aws cognito-idp admin-create-user --user-pool-id "$USER_POOL_ID" --username user.test --user-attributes Name=email,Value=user.test@example.com Name=email_verified,Value=true --message-action SUPPRESS --region "$AWS_REGION"
@@ -41,9 +41,15 @@ aws cognito-idp admin-list-groups-for-user --user-pool-id "$USER_POOL_ID" --user
 
 Expected results:
 
+- The `admin` and `user` groups already exist (created by Terraform).
 - Both users exist and are enabled.
 - `admin.test` is in the `admin` group.
 - `user.test` is in the `user` group.
+
+To Delete users:
+`aws cognito-idp admin-delete-user --user-pool-id "$USER_POOL_ID" --username admin.test --region "$AWS_REGION"`
+`aws cognito-idp admin-delete-user --user-pool-id "$USER_POOL_ID" --username user.test --region "$AWS_REGION"`
+
 
 AWS Console alternative:
 
@@ -55,6 +61,7 @@ AWS Console alternative:
 6. For each user, choose Set password and set a permanent password.
 7. Add `admin.test` to group `admin` and `user.test` to group `user`.
 8. Verify both users show status Confirmed/Enabled.
+
 
 ## 2. Ensure app client is correct
 
@@ -151,6 +158,7 @@ Implementation notes:
 - TOTP generation uses HMAC-SHA1 over 30-second counters.
 - The code logic lives in `mfa_bootstrap.py` inside `generate_totp` and the auto-TOTP branch in `MFA_SETUP`.
 
+***`user.admin`:***
 ```bash
 py -3 scripts/mfa_bootstrap.py \
   --username admin.test \
@@ -163,7 +171,7 @@ py -3 scripts/mfa_bootstrap.py \
 source Reports/admin_tokens.env
 ```
 
-Repeat for `user.test`:
+***Repeat for `user.test`:***
 
 ```bash
 py -3 scripts/mfa_bootstrap.py \
@@ -197,7 +205,7 @@ Expected results:
 
 - `Reports/admin_tokens.env` is created.
 - `ID_TOKEN` and `ACCESS_TOKEN` load successfully after `source Reports/admin_tokens.env`.
-- With API Gateway `authorization_scopes` enabled, API calls must use `ACCESS_TOKEN`, not `ID_TOKEN`.
+- This step only enrolls/authenticates the user with MFA. The `ACCESS_TOKEN` it produces does **not** carry the `rbac-api/admin` scope and will be rejected by API Gateway. See [4. Get scope-bearing access tokens](#4-get-scope-bearing-access-tokens-oauth-authorization-code--pkce) for the token you actually use against the API.
 
 ### 3.1 Manual one-time MFA bootstrap
 
@@ -235,26 +243,129 @@ Repeat the same manual bootstrap for non-admin if needed:
 - Set that user's password in `PASSWORD`.
 - After Step 4, export the non-admin tokens with `export NON_ADMIN_ID_TOKEN="$ID_TOKEN"` and `export NON_ADMIN_ACCESS_TOKEN="$ACCESS_TOKEN"`.
 
-## 4. Get non-admin token
 
-Preferred path:
+
+## 4. Get scope-bearing access tokens (OAuth Authorization Code + PKCE)
+
+Set your base variables once per shell session. Pull these from `terraform output` rather than hardcoding literals — the user pool ID and app client ID are regenerated every time the Cognito stack is destroyed/recreated, even if the Hosted UI domain prefix stays the same:
 
 ```bash
-python scripts/mfa_bootstrap.py \
-  --username user.test \
-  --region us-west-2 \
-  --auto-totp \
-  --token-var NON_ADMIN_ID_TOKEN \
-  --write-env Reports/non_admin_tokens.env
+export AWS_REGION="us-west-2"
+export USER_POOL_ID="$(env -u AWS_CA_BUNDLE terraform output -raw cognito_user_pool_id)"
+export COGNITO_APP_CLIENT_ID="$(env -u AWS_CA_BUNDLE terraform output -raw cognito_user_pool_client_id)"
+export HOSTED_UI_DOMAIN="$(env -u AWS_CA_BUNDLE terraform output -raw cognito_hosted_ui_domain | sed 's#https://##')"
+export API_PY_BASE="$(env -u AWS_CA_BUNDLE terraform output -raw api_python_invoke_url)"
+export API_NODE_BASE="$(env -u AWS_CA_BUNDLE terraform output -raw api_node_invoke_url)"
+```
 
-source Reports/non_admin_tokens.env
+If the Hosted UI authorize/login page errors out or doesn't load right after a fresh `terraform apply`, it's usually one of two things, not a config problem:
+
+- **Stale values** — you're still using a `USER_POOL_ID`/`COGNITO_APP_CLIENT_ID` from before a destroy/recreate. Re-run the export block above to pick up the current ones.
+- **New domain still propagating** — the Hosted UI domain's CloudFront distribution takes a few minutes to start responding right after `aws_cognito_user_pool_domain` is created. Wait a couple minutes and retry before assuming something's broken.
+
+For each test user (repeat once for `admin.test`, once for `user.test`):
+
+***`mfa_bootstrap.py`*** authenticates through Cognito's `USER_PASSWORD_AUTH` direct auth flow (`initiate-auth` / `respond-to-auth-challenge`). That flow only ever issues an access token with the default `aws.cognito.signin.user.admin` scope — it can never carry the custom `rbac-api/admin` / `rbac-api/user` scopes, regardless of the user's Cognito group. Since the API Gateway methods require `authorization_scopes = ["rbac-api/admin", "rbac-api/user"]` (api.tf:77, api.tf:189), a token from `mfa_bootstrap.py` is always rejected by API Gateway's built-in Cognito authorizer with `401 Unauthorized`, before Lambda ever runs — even for `admin.test`.
+
+***Custom resource-server scopes*** are only granted through Cognito's OAuth 2.0 endpoints (`/oauth2/authorize` + `/oauth2/token`, reached via the Hosted UI). Use sections 3-4 above once per user to enroll them in MFA, then use this flow for the token you actually send to the API.
+
+Prerequisite (already applied in this repo): `aws_cognito_user_pool_domain.cognito_rbac_pool_domain` in cognito.tf, and `supported_identity_providers = ["COGNITO"]` on the app client — required for the Hosted UI login page to render.
+
+```bash
+# 1. Generate a PKCE pair (required because the app client has no secret)
+CODE_VERIFIER=$(openssl rand -base64 96 | tr -d '=+/\n' | cut -c1-64)
+CODE_CHALLENGE=$(echo -n "$CODE_VERIFIER" | openssl dgst -sha256 -binary | openssl base64 | tr '+/' '-_' | tr -d '=')
+
+# 2. Print the authorize URL and open it in a browser.
+# Run ONE of these two blocks per browser session - not both back to back -
+# so the printed label always tells you which URL you're looking at.
+
+echo "===== ADMIN.TEST authorize URL (open this one first, in your main browser) ====="
+echo "https://$HOSTED_UI_DOMAIN/oauth2/authorize?response_type=code&client_id=$COGNITO_APP_CLIENT_ID&redirect_uri=https%3A%2F%2Flocalhost%2Fcallback&scope=openid+rbac-api%2Fadmin+rbac-api%2Fuser&code_challenge=$CODE_CHALLENGE&code_challenge_method=S256"
+```
+
+```bash
+echo "===== USER.TEST authorize URL (open this one in a fresh incognito/private window) ====="
+echo "https://$HOSTED_UI_DOMAIN/oauth2/authorize?response_type=code&client_id=$COGNITO_APP_CLIENT_ID&redirect_uri=https%3A%2F%2Flocalhost%2Fcallback&scope=openid+rbac-api%2Fuser&code_challenge=$CODE_CHALLENGE&code_challenge_method=S256"
+```
+
+Log in as the target user and enter the TOTP code on the Hosted UI's MFA screen. It redirects to `https://localhost/callback?code=XXXX`; the browser shows a connection error since nothing listens on localhost — that's expected. Copy the `code` value out of the address bar.
+
+The Hosted UI keeps a session cookie, so opening the `user.test` URL in the same browser you just used for `admin.test` will silently reissue an `admin.test` code instead of prompting for new credentials. Use a fresh incognito/private window (or a different browser entirely) for the second login, and check the decoded token's `username` claim afterward to confirm you actually got the user you expected.
+
+```bash
+# 3. Exchange the code for tokens. Use a distinct output file per user — rbac_test.sh
+# section 5.2 reads both, and reusing one filename for both would overwrite the first.
+# *** CHANGE OUT_FILE ON THE SECOND (user.test) RUN — this is the #1 source of ***
+# *** mixed-up tokens: forgetting to switch this from oauth_admin.json.        ***
+CODE="XXXX"           # paste from the browser address bar
+OUT_FILE="Reports/oauth_admin.json"   # <-- use Reports/oauth_user.json for user.test
+
+curl -s -X POST "https://$HOSTED_UI_DOMAIN/oauth2/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=authorization_code" \
+  -d "client_id=$COGNITO_APP_CLIENT_ID" \
+  -d "code=$CODE" \
+  -d "redirect_uri=https://localhost/callback" \
+  -d "code_verifier=$CODE_VERIFIER" > "$OUT_FILE"
+
+# 3.5. Self-check BEFORE exporting anything: confirms which real user this file
+# now belongs to. If this doesn't say the user you expect, stop — you reused
+# the wrong $OUT_FILE. Cheap to run every time, catches the mistake immediately
+# instead of a confusing 401/403 several steps later.
+python -c "import json,base64; d=json.load(open('$OUT_FILE')); p=d['access_token'].split('.')[1]; p+='='*(-len(p)%4); c=json.loads(base64.urlsafe_b64decode(p)); print('Self-check -', '$OUT_FILE', '-> username:', c['username'], '| scope:', c['scope'])"
+
+# 4. Export the tokens (ID_TOKEN/ACCESS_TOKEN for admin.test, NON_ADMIN_ID_TOKEN/NON_ADMIN_ACCESS_TOKEN for user.test)
+# Also keep REFRESH_TOKEN (NON_ADMIN_REFRESH_TOKEN for user.test) - see 4.1 to
+# refresh without repeating the browser login once ID_TOKEN/ACCESS_TOKEN expire.
+# *** CHANGE THE VARIABLE NAMES ON THE SECOND (user.test) RUN TOO — this is the ***
+# *** #2 source of mixed-up tokens: reusing ID_TOKEN/ACCESS_TOKEN both times.    ***
+ID_TOKEN=$(python -c "import json; print(json.load(open('$OUT_FILE'))['id_token'])")
+ACCESS_TOKEN=$(python -c "import json; print(json.load(open('$OUT_FILE'))['access_token'])")
+REFRESH_TOKEN=$(python -c "import json; print(json.load(open('$OUT_FILE'))['refresh_token'])")
+export ID_TOKEN ACCESS_TOKEN REFRESH_TOKEN
+
+# 5. Verify the scope and username actually landed correctly
+echo "$ACCESS_TOKEN" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null | python -m json.tool
 ```
 
 Expected results:
 
-- `Reports/non_admin_tokens.env` is created.
-- `NON_ADMIN_ID_TOKEN` and `NON_ADMIN_ACCESS_TOKEN` are non-empty after sourcing the file.
-- `NON_ADMIN_ACCESS_TOKEN` is used for API Gateway scope-deny testing.
+- Step 3.5's self-check prints the username you actually just authenticated as — confirm it matches before doing anything else.
+- The decoded payload's `scope` field contains `rbac-api/admin` (admin.test) or `rbac-api/user` (user.test) — not just `aws.cognito.signin.user.admin`.
+- The decoded payload's `username` field matches the user you intended to log in as.
+- Repeat once per user: `Reports/oauth_admin.json` for `admin.test`, keeping its tokens as `ID_TOKEN`/`ACCESS_TOKEN`; `Reports/oauth_user.json` for `user.test`, exporting its tokens as `NON_ADMIN_ID_TOKEN`/`NON_ADMIN_ACCESS_TOKEN` instead (repeat step 4 with those variable names and `OUT_FILE=Reports/oauth_user.json`).
+
+## 4.1 Refresh an expired token (no browser login required)
+
+`ID_TOKEN`/`ACCESS_TOKEN` expire after 1 hour (`expires_in: 3600` in the token response). If a curl call starts returning `401` again after previously working, check expiry before assuming something broke:
+
+```bash
+echo "$ACCESS_TOKEN" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null | python -c "import json,sys,time; c=json.load(sys.stdin); print('exp:', c['exp'], '| now:', int(time.time()), '| expired:', c['exp'] < time.time())"
+```
+
+If it's expired, you do **not** need to redo the whole browser login/PKCE dance — Cognito's `refresh_token` grant mints a new `ID_TOKEN`/`ACCESS_TOKEN` from the `REFRESH_TOKEN` you saved in step 4 of section 4:
+
+```bash
+OUT_FILE="Reports/oauth_admin.json"   # or Reports/oauth_user.json for the non-admin token
+
+curl -s -X POST "https://$HOSTED_UI_DOMAIN/oauth2/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=refresh_token" \
+  -d "client_id=$COGNITO_APP_CLIENT_ID" \
+  -d "refresh_token=$REFRESH_TOKEN" > "$OUT_FILE"
+
+ID_TOKEN=$(python -c "import json; print(json.load(open('$OUT_FILE'))['id_token'])")
+ACCESS_TOKEN=$(python -c "import json; print(json.load(open('$OUT_FILE'))['access_token'])")
+export ID_TOKEN ACCESS_TOKEN
+```
+
+Notes:
+
+- No `code_verifier`/PKCE is needed here — that's only required for the initial `authorization_code` exchange, not for `refresh_token`.
+- Use `$NON_ADMIN_REFRESH_TOKEN` (writing to `NON_ADMIN_ID_TOKEN`/`NON_ADMIN_ACCESS_TOKEN`) to refresh the non-admin side instead.
+- Cognito does not rotate the refresh token by default — the response won't include a new `refresh_token`, so keep reusing the original `$REFRESH_TOKEN` for future refreshes rather than overwriting it from this response.
+- The refresh token itself is long-lived (30 days by default) but not infinite. If a `refresh_token` grant call itself fails (e.g. `NotAuthorizedException`/`invalid_grant`), the refresh token has expired or been revoked — at that point you must redo the full browser-based flow in section 4 from step 2 onward.
 
 ## 5. Run tests
 
@@ -274,11 +385,14 @@ curl -i "$API_PY_BASE/PythonResource?name=Norrin" -H "Authorization: $ACCESS_TOK
 curl -i "$API_NODE_BASE/NodeResource?name=Norrin" -H "Authorization: $ACCESS_TOKEN"
 ```
 
+`ACCESS_TOKEN` / `NON_ADMIN_ACCESS_TOKEN` here must be the tokens from [section 4](#4-get-scope-bearing-access-tokens-oauth-authorization-code--pkce), not the ones written by `mfa_bootstrap.py` directly.
+
 Expected results:
 
 - `403` for both non-admin requests.
 - `200` for both admin requests.
 - If admin returns `403`, decode `ACCESS_TOKEN` and confirm it contains the required `rbac-api/admin` scope.
+- If admin or non-admin returns `401`, the token most likely came from `mfa_bootstrap.py` (`USER_PASSWORD_AUTH`) instead of the OAuth flow in section 4 — that token never carries custom scopes and API Gateway rejects it outright.
 
 ### Capture logs
 
@@ -290,11 +404,11 @@ echo "PY_LOG_GROUP=$PY_LOG_GROUP"
 echo "NODE_LOG_GROUP=$NODE_LOG_GROUP"
 
 export MSYS_NO_PATHCONV=1
-aws logs tail "$PY_LOG_GROUP" --region us-west-2 --since 5m
-aws logs tail "$NODE_LOG_GROUP" --region us-west-2 --since 5m
+aws logs tail "$PY_LOG_GROUP" --region us-west-2 --since 5m | tee Reports/python_lambda_logs.txt
+aws logs tail "$NODE_LOG_GROUP" --region us-west-2 --since 5m | tee Reports/node_lambda_logs.txt
 ```
 
-Note: `MSYS_NO_PATHCONV` disables Git Bash path conversion.
+Note: `MSYS_NO_PATHCONV` disables Git Bash path conversion. `tee` writes the raw tail output to `Reports/*.txt` while still printing it to the terminal — re-running this overwrites the previous capture, so rename or copy the file first if you want to keep a specific run's output.
 
 ### 5.1 Validate Terraform and capture outputs
 
@@ -314,9 +428,18 @@ Expected results:
 
 ### 5.2 Set convenience variables for `rbac_test.sh`
 
+`rbac_test.sh` uses whatever `ID_TOKEN` / `ACCESS_TOKEN` / `NON_ADMIN_ID_TOKEN` / `NON_ADMIN_ACCESS_TOKEN` are already exported in your shell, and only checks that they're unexpired — not that they carry the right scope. **Do not** `source Reports/admin_tokens.env` or `source Reports/non_admin_tokens.env` here: those files come from `mfa_bootstrap.py`'s `USER_PASSWORD_AUTH` flow and never carry the `rbac-api/admin` / `rbac-api/user` scope (see [section 4](#4-get-scope-bearing-access-tokens-oauth-authorization-code--pkce)). Sourcing them would silently overwrite good tokens with ones API Gateway will reject.
+
+Instead, make sure these are set from the OAuth flow in section 4 (redo it if they've expired — they last 1 hour):
+
 ```bash
-source Reports/admin_tokens.env
-source Reports/non_admin_tokens.env
+ID_TOKEN=$(python -c "import json; print(json.load(open('Reports/oauth_admin.json'))['id_token'])")
+ACCESS_TOKEN=$(python -c "import json; print(json.load(open('Reports/oauth_admin.json'))['access_token'])")
+export ID_TOKEN ACCESS_TOKEN
+
+NON_ADMIN_ID_TOKEN=$(python -c "import json; print(json.load(open('Reports/oauth_user.json'))['id_token'])")
+NON_ADMIN_ACCESS_TOKEN=$(python -c "import json; print(json.load(open('Reports/oauth_user.json'))['access_token'])")
+export NON_ADMIN_ID_TOKEN NON_ADMIN_ACCESS_TOKEN
 
 export API_PY_BASE="$(terraform output -raw api_python_invoke_url)"
 export API_NODE_BASE="$(terraform output -raw api_node_invoke_url)"
@@ -370,19 +493,9 @@ curl -i "$API_NODE_BASE/NodeResource?name=denied" -H "Authorization: $NON_ADMIN_
 
 Expected: `403`.
 
-With API Gateway `authorization_scopes`, this deny can happen before Lambda runs if the non-admin access token does not contain `rbac-api/admin`. If API Gateway allows the request through, Lambda still performs the final group-based RBAC check.
+API Gateway's `authorization_scopes` now accepts either `rbac-api/admin` or `rbac-api/user` (see the changelog entry below), so any authenticated `rbac-api` caller reaches Lambda, and Lambda's group/scope check returns the actual `403` for non-admins.
 
-If you get `401` with `The incoming token has expired`, refresh the non-admin token and rerun:
-
-```bash
-python scripts/mfa_bootstrap.py \
-  --username user.test \
-  --region us-west-2 \
-  --token-var NON_ADMIN_ID_TOKEN \
-  --write-env Reports/non_admin_tokens.env
-
-source Reports/non_admin_tokens.env
-```
+If you get `401` instead, it's either an expired token or one obtained via `mfa_bootstrap.py` — that flow never carries a custom scope at all, so API Gateway rejects it outright regardless of expiry. Refresh via the Authorization Code + PKCE flow in [section 4](#4-get-scope-bearing-access-tokens-oauth-authorization-code--pkce), not `mfa_bootstrap.py`, then re-export `NON_ADMIN_ACCESS_TOKEN`.
 
 ### 5.6 WAF tests
 

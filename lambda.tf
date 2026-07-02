@@ -332,6 +332,7 @@ resource "aws_lambda_function" "unused_token_detector" {
       SOAR_MAX_BULLETS_PER_SECTION   = "0"
       SOAR_RISK_FOCUS                = "all"
       SOAR_GENERATE_ON_EMPTY         = "true"
+      REVOKE_TOKEN_FUNCTION_NAME     = aws_lambda_function.revoke_token.function_name
     }
   }
 }
@@ -412,6 +413,16 @@ resource "aws_iam_role_policy" "unused_token_detector_access" {
         ]
         Resource = [
           "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/bedrock/waf-bedrock-analyzer-prompt"
+        ]
+      },
+      {
+        Sid    = "AllowInvokeRevokeTokenFunction"
+        Effect = "Allow"
+        Action = [
+          "lambda:InvokeFunction"
+        ]
+        Resource = [
+          aws_lambda_function.revoke_token.arn
         ]
       }
     ]

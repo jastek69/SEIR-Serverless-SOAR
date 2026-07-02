@@ -129,8 +129,12 @@ else
     TOKEN_PRIMER_SCRIPT_NATIVE="$TOKEN_PRIMER_SCRIPT"
 fi
 
-# Optional token primer helper. Keep this off by default because most test runs
-# already source tokens from Reports/*.env.
+# Optional token primer helper. Keep this off by default: it authenticates via
+# USER_PASSWORD_AUTH (see src/easier_get_token.py), which never carries the
+# rbac-api/admin or rbac-api/user OAuth scope, so it cannot produce tokens that
+# pass API Gateway's scope check. Export ID_TOKEN/ACCESS_TOKEN (and
+# NON_ADMIN_ID_TOKEN/NON_ADMIN_ACCESS_TOKEN) from the Authorization Code + PKCE
+# flow in docs/rbac-test.md section 4.1 before running this script.
 if [[ "$RUN_TOKEN_PRIMER" == "true" ]]; then
     echo "Running token primer script: $TOKEN_PRIMER_SCRIPT"
     "$PYTHON_BIN" "$TOKEN_PRIMER_SCRIPT_NATIVE"
@@ -138,14 +142,15 @@ fi
 
 if [[ -z "${ID_TOKEN:-}" || -z "${ACCESS_TOKEN:-}" ]]; then
     echo "ID_TOKEN/ACCESS_TOKEN not pre-set; API auth tests will be skipped."
-    echo "Set ID_TOKEN and ACCESS_TOKEN in your shell to run positive/RBAC/WAF auth checks."
+    echo "Set ID_TOKEN and ACCESS_TOKEN in your shell from the Authorization Code + PKCE flow in docs/rbac-test.md section 4.1 to run positive/RBAC/WAF auth checks."
 else
     if token_is_fresh "$ID_TOKEN" && token_is_fresh "$ACCESS_TOKEN"; then
         VALID_ID_TOKEN="$ID_TOKEN"
         VALID_ACCESS_TOKEN="$ACCESS_TOKEN"
     else
         echo "ID_TOKEN appears expired or invalid; skipping auth-required API tests."
-        echo "Refresh with: python scripts/mfa_bootstrap.py --username admin.test --region $REGION --token-var ID_TOKEN --write-env Reports/admin_tokens.env"
+        echo "mfa_bootstrap.py alone won't fix this: its USER_PASSWORD_AUTH tokens never carry the rbac-api scope API Gateway requires."
+        echo "Refresh via the Authorization Code + PKCE flow in docs/rbac-test.md section 4.1, then re-export ID_TOKEN and ACCESS_TOKEN."
         unset VALID_ID_TOKEN
         unset VALID_ACCESS_TOKEN
     fi
@@ -160,7 +165,8 @@ fi
 
 if [[ -n "$NON_ADMIN_ACCESS_TOKEN" ]] && ! token_is_fresh "$NON_ADMIN_ACCESS_TOKEN"; then
     echo "NON_ADMIN_ACCESS_TOKEN appears expired or invalid; skipping scope deny test."
-    echo "Refresh with: python scripts/mfa_bootstrap.py --username user.test --region $REGION --token-var NON_ADMIN_ID_TOKEN --write-env Reports/non_admin_tokens.env"
+    echo "mfa_bootstrap.py alone won't fix this: its USER_PASSWORD_AUTH tokens never carry the rbac-api scope API Gateway requires."
+    echo "Refresh via the Authorization Code + PKCE flow in docs/rbac-test.md section 4.1, then re-export NON_ADMIN_ID_TOKEN and NON_ADMIN_ACCESS_TOKEN."
     NON_ADMIN_ACCESS_TOKEN=""
 fi
 

@@ -67,4 +67,7 @@ terraform.rc
 *.pub
 *.ppk
 *.gitattributes
+CLAUDE.md
+Changelog.md
+
 

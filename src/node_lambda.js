@@ -63,7 +63,10 @@ exports.handler = async (event, context) => {
         response.groups = groups;
     }
 
-    if (groups.includes("admin")) {
+    const scopes = (event.requestContext?.authorizer?.claims?.scope || "").split(" ").filter(Boolean);
+    const isAdmin = groups.includes("admin") || scopes.includes("rbac-api/admin");
+
+    if (isAdmin) {
         response.admin = true;
     } else {
         return {
