@@ -104,6 +104,9 @@ resource "aws_api_gateway_deployment" "PythonDeployment" {
       resource    = aws_api_gateway_resource.PythonResource
       method      = aws_api_gateway_method.PythonMethod
       integration = aws_api_gateway_integration.PythonIntegration
+      # /jobs routes live in modules/jobs — without this, adding/changing
+      # them never redeploys the API and they silently stay dark (REST v1).
+      jobs = module.jobs.deployment_trigger_hash
     }))
   }
 

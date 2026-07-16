@@ -68,6 +68,101 @@ The current Terraform configuration wires Lambda functions to these runtime trig
 | `${var.project}-process-orders` | No trigger wiring is present | Not currently called by Terraform-managed events | `s3.tf` |
 | `waf_bedrock_analyzer_function` | No trigger wiring is present | Not currently called by Terraform-managed events | `bedrock.tf` |
 
+# Architecture — Root Files, Modules, and Parameter Store
+
+Three different wiring mechanisms hold this repo (and its companion
+workstation repo) together. They solve different problems and fail
+differently — don't conflate them. In particular: **modules are NOT built
+around Parameter Store.** Modules are a Terraform code-organization boundary;
+Parameter Store is a runtime data boundary.
+
+## Layer 1 — inside the root: direct references
+
+The root files (`cognito.tf`, `api.tf`, `waf.tf`, `lambda.tf`,
+`dynamo_db.tf`, `bedrock.tf`, …) reference each other by resource address —
+e.g. `api.tf`'s authorizer points at `aws_cognito_user_pool.cognito_rbac_pool.arn`
+directly. One state file, one plan; Terraform orders everything from these
+references, and a bad reference fails loudly at `terraform plan`.
+
+## Layer 2 — root ↔ module: variables in, outputs out
+
+A module (`modules/translation`, `modules/jobs`) is a folder of `.tf` files
+with a deliberate interface. It cannot see the root's resources at all — it
+only knows what the root passes in, and the root only gets back what the
+module outputs:
+
+```
+root's PythonAPI id ──────────► var.rest_api_id ───┐
+root's Cognito authorizer id ─► var.authorizer_id ──┤→ modules/jobs builds its
+job-type maps ────────────────► var.queue_visibility_timeouts ─┘ routes/queues/table
+                                                       │
+root's PythonDeployment ◄── module.jobs.deployment_trigger_hash
+```
+
+That last arrow matters: the module can't force the root's REST API to
+redeploy (the deployment resource belongs to the root), so it exports a hash
+of its routes and the root folds that into its own deployment `triggers`.
+Still one state file, one `terraform apply` — the module is purely
+encapsulation, like a class with a constructor signature.
+
+## Layer 3 — across states and at runtime: Parameter Store
+
+SSM appears only where Terraform references are impossible:
+
+- **Cross-root handshake.** The workstation repo (stability_ai) cannot
+  reference `module.jobs.queue_urls` — different repo, different state. So
+  the jobs module *publishes* `/jobs/queue-urls` and `/jobs/table-name`, and
+  the workstation's `bootstrap.sh.tpl` reads them at boot. Symmetrically,
+  the workstation publishes `/stability-matrix/bucket`, which the Bedrock
+  failure reporter reads at runtime.
+- **Runtime configuration.** `/bedrock/soar-prompt`,
+  `/bedrock/jobs-failure-prompt`, etc. aren't wiring at all — they're
+  editable content, in SSM precisely so they can change without touching
+  Terraform or code (`ignore_changes = [value]` protects console edits).
+
+## The structural picture
+
+```
+SEIR root (state: global/lambda-terraform.tfstate)
+├── Platform layer (root files) — shared by everything:
+│   Cognito pool/groups/resource-server, PythonAPI + NodeAPI + authorizers,
+│   WAF + logging, token-lifecycle Lambdas + DynamoDB tables, SOAR/Bedrock,
+│   EventBridge, S3 audit buckets
+├── module "taaops_translation" — self-contained: own buckets, Lambda, IAM;
+│   interface = bucket names/ARNs in, bucket names out
+└── module "jobs" — self-contained: queues+DLQs, jobs table, 4 Lambdas,
+    2 scoped IAM roles, EventBridge rules;
+    interface = API attachment points + job-type maps in,
+    trigger hash + queue/table identifiers out
+    └── publishes /jobs/* to SSM ← aimed at the OTHER repo, not at this root
+```
+
+Mental model: **root = the platform** (identity, ingress, protection —
+things every subsystem shares); **modules = subsystems that rent space on
+the platform** through a narrow constructor; **SSM = the published API
+between independently-deployed stacks**.
+
+## Why it's shaped this way
+
+- Adding a job type touches only the two maps in the root's `jobs.tf` — the
+  module fans one entry out into a queue, DLQ, reporter wiring, and a
+  refreshed `/jobs/queue-urls` automatically.
+- Phase 3 (containerized workers on AWS Batch) changes nothing in
+  `modules/jobs`: the job contract + SSM parameters are the interface, and a
+  Batch worker reads the same queue today's EC2 worker does.
+- If jobs ever needs its own repo/state, the module is pre-shaped for
+  extraction: its only tethers to this root are the variables it's passed,
+  and external consumers already go through SSM rather than state references.
+
+## Caveat — the layers fail differently
+
+A bad Layer-2 reference fails loudly at `terraform plan`. A Layer-3 mismatch
+— e.g. renaming the jobs module's `name_prefix` while the workstation's IAM
+policy still matches `taaops-jobs-*` — fails silently until runtime
+(`AccessDenied` in the worker log). That's the price of decoupled states;
+the convention-coupled spots are flagged in code comments and in the
+workstation repo's `README_worker-nodes.md` troubleshooting table.
+
 # Terraform Templates – Reusable Skeleton
 
 1.1. Base module pattern
