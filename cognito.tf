@@ -105,3 +105,6 @@ resource "aws_cognito_user_group" "user" {
   description  = "Standard users with non-admin RBAC access"
   precedence   = 2
 }
+
+
+### MCP INTEGRATION HERE ###

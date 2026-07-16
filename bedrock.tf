@@ -406,3 +406,31 @@ resource "aws_ssm_parameter" "waf_bedrock_analyzer_prompt" {
   type  = "String"
   value = file("${path.module}/prompts/waf-bedrock-analyzer-prompt.txt")
 }
+
+/*
+
+# MCP Prompts
+# Note: (If the SecureString uses a customer-managed KMS key rather than the default aws/ssm key, add kms:Decrypt for that key to the Lambda's IAM role policy.)
+resource "aws_ssm_parameter" "mcp_classify_prompt" {
+  name  = "/mcp/prompts/classify-review"
+  type  = "SecureString"
+  value = <<-EOT
+    You are reviewing model output. Given the classification result {result},
+    explain the confidence level and flag anything below 0.6 probability.
+  EOT
+}
+
+resource "aws_iam_role_policy" "mcp_ssm_prompts" {
+  name = "mcp-ssm-prompts"
+  role = aws_iam_role.lambda.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["ssm:GetParameter", "ssm:GetParametersByPath"]
+      Resource = "arn:aws:iam::*:parameter/mcp/prompts/*" # tighten to your account/region ARN
+    }]
+  })
+}
+
+*/

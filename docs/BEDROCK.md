@@ -285,3 +285,38 @@ Now you see....
 | Bedrock     | AI enrichment   |
 
 ## SOC Summary Report - WAF and Bedrock
+
+
+
+# MCP Server Implementation
+
+## Cognito
+ - a JWT authorizer on Cognito access tokens, the audience match is satisfied by the token's client_id claim, so list the app client ID as the audience. 
+ - since the gateway now fronts everything, can delete the aws_lambda_function_url resource (or set it to AWS_IAM) so nobody can bypass auth.
+
+
+Python: group-based RBAC + prompts from SSM
+With the Lambda Web Adapter, API Gateway's request context — including the JWT claims the authorizer already validated — arrives in the x-amzn-request-context header. So Layer 2 is just reading claims, no re-verification needed:
+
+
+
+## Claude Connection
+Claude Code's built-in `/mcp` OAuth flow relies on dynamic client registration, which Cognito doesn't support, so with `ALLOW_USER_PASSWORD_AUTH` flow needs to mint a token and pass it as a header:
+
+```bash
+TOKEN=$(aws cognito-idp initiate-auth \
+  --auth-flow USER_PASSWORD_AUTH \
+  --client-id <app_client_id> \
+  --auth-parameters USERNAME=me@example.com,PASSWORD='...' \
+  --query 'AuthenticationResult.AccessToken' --output text)
+
+claude mcp add --transport http ml-tools \
+  https://<api_id>.execute-api.us-west-2.amazonaws.com/mcp \
+  --header "Authorization: Bearer $TOKEN"
+```
+
+
+MFA is ON so initiate-auth will return an MFA challenge you answer with respond-to-auth-challenge (or use the hosted UI code flow and exchange at the /oauth2/token endpoint); and access tokens default to 1 hour, so either:
+- raise access_token_validity on the app client via a token_validity_units block
+- wrap the token fetch + claude mcp remove/add in a small refresh script. 
+Also make sure the token actually carries rbac-api/user — that scope comes from the OAuth flow against your resource server, not from plain USER_PASSWORD_AUTH, which is another reason the hosted-UI code flow is the more correct path for the gateway's scope check.
