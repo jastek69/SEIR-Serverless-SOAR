@@ -1,4 +1,4 @@
-from handler import REPORT_TEMPLATE
+from rds_handler import REPORT_TEMPLATE
 
 
 def test_report_template_format():

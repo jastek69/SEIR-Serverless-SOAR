@@ -63,6 +63,8 @@ terraform.rc
 
 # Ignore other files
 *.json
+# Project-scope MCP server registration (no secrets) — keep it versioned
+!.mcp.json
 *.pem
 *.pub
 *.ppk
@@ -71,3 +73,6 @@ CLAUDE.md
 Changelog.md
 
 
+
+# Lambda build staging (pip -t output, zipped by terraform)
+build/

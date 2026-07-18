@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "soar-agents": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["mcp-server/mcp_server.py"]
+    }
+  }
+}

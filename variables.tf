@@ -104,6 +104,26 @@ variable "environment" {
 }
 
 
+# Database - Phase 11 RDS MySQL intake
+variable "rds_db_username" {
+  description = "Master username for the Phase 11 intake RDS MySQL instance"
+  type        = string
+  default     = "admin"
+}
+
+variable "rds_db_name" {
+  description = "Initial database created on the Phase 11 intake RDS MySQL instance"
+  type        = string
+  default     = "lab11"
+}
+
+variable "rds_instance_class" {
+  description = "Instance class for the Phase 11 intake RDS MySQL instance"
+  type        = string
+  default     = "db.t3.micro"
+}
+
+
 # Database - Aurora variables
 variable "aurora_username" {
   description = "The username for the Aurora database"

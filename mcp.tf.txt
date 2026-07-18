@@ -1,0 +1,63 @@
+##########################################################################################
+########### MCP Integration with Cognito User Pool ########################
+# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cognito_identity_provider
+
+resource "aws_apigatewayv2_api" "mcp_apigw" {
+  name          = "mcp-ml-tools-api"
+  protocol_type = "HTTP"
+}
+
+resource "aws_apigatewayv2_authorizer" "mcp_cognito_jwt" {
+  api_id           = aws_apigatewayv2_api.mcp_apigw.id
+  authorizer_type  = "JWT"
+  identity_sources = ["$request.header.Authorization"]
+  name             = "cognito-rbac"
+
+  jwt_configuration {
+    issuer   = "https://cognito-idp.us-west-2.amazonaws.com/${aws_cognito_user_pool.cognito_rbac_pool.id}"
+    audience = [aws_cognito_user_pool_client.cognito_rbac_pool_client.id]
+  }
+}
+
+/*
+resource "aws_apigatewayv2_integration" "mcp_lambda" {
+  api_id                 = aws_apigatewayv2_api.mcp_apigw.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.mcp.invoke_arn
+  payload_format_version = "2.0"
+}
+
+
+# Layer 1: gateway rejects any token missing the base scope
+resource "aws_apigatewayv2_route" "mcp" {
+  api_id             = aws_apigatewayv2_api.mcp_apigw.id
+  route_key          = "ANY /mcp"
+  target             = "integrations/${aws_apigatewayv2_integration.mcp_lambda.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.mcp_cognito_jwt.id
+  authorization_scopes = ["${aws_cognito_resource_server.rbac_api_resource_server.identifier}/user"]
+}
+
+resource "aws_apigatewayv2_stage" "mcp_prod" {
+  api_id      = aws_apigatewayv2_api.mcp_apigw.id
+  name        = "$default"
+  auto_deploy = true
+}
+
+
+
+
+resource "aws_lambda_permission" "apigw" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.mcp.function_name
+  principal     = "apigateway.amazonaws.com"
+ # source_arn    = "${aws_apigatewayv2_api.mcp_apigw.execution_arn}/*/*"
+}
+
+/*
+output "mcp_endpoint" {
+  value = "${aws_apigatewayv2_api.mcp_apigw.api_endpoint}/mcp"
+}
+
+

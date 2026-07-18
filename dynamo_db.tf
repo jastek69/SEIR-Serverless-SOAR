@@ -172,3 +172,52 @@ resource "aws_dynamodb_table" "dynamoDb_waf_events" {
     Component = "waf"
   }
 }
+
+
+# Table 4 WAF Correlation Findings (Phase 12)
+# Written by the threat-correlation agent; read/updated by the SOAR response
+# agent. Non-key fields: created_at, severity, risk_score, event_count,
+# primary_source_ip, primary_target, status, bedrock_report, evidence.
+resource "aws_dynamodb_table" "waf_correlation_findings" {
+  name         = "waf-correlation-findings"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "finding_id"
+
+  attribute {
+    name = "finding_id"
+    type = "S"
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
+  tags = {
+    Name      = "waf-correlation-findings"
+    Component = "soar"
+  }
+}
+
+
+# Table 5 Security Incidents (Phase 12)
+# Written by the SOAR response agent with a deterministic INC-<finding_id>
+# conditional put; read by the executive dashboard agent.
+resource "aws_dynamodb_table" "security_incidents" {
+  name         = "security-incidents"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "incident_id"
+
+  attribute {
+    name = "incident_id"
+    type = "S"
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
+  tags = {
+    Name      = "security-incidents"
+    Component = "soar"
+  }
+}
