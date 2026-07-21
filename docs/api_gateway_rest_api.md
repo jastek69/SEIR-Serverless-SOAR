@@ -123,7 +123,7 @@ End Note:
 
 “Logs tell you what actually happened, not what you think happened.”
 
-🏁 Exit Criteria
+Exit Criteria
 
 Student passes this section when:
 
@@ -135,7 +135,7 @@ Student passes this section when:
 ✔ Student identifies event structure differences
 
 
-
+terrafrom app
 
 # API GATEWAY
 Client → Resource → Method → Integration → Lambda → Logs
@@ -151,7 +151,7 @@ Unlike HTTP API, REST API makes you define:
 
 Task 1 — Create REST API
 
-    📍 Navigation
+    Navigation:
     AWS Console → API Gateway
     Click Create API ---> REST API (NOT HTTP API)
     Endpoint Type: Regional

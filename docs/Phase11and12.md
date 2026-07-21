@@ -43,7 +43,7 @@ aws configure get region
         in private subnets if available (Default VPC often has public subnets; we’ll control access via SG regardless)
     Get subnets in default VPC:
 
-    #Galactus: Subnets are like Kashyyyk tree branches—pick a few.
+    # Galactus: Subnets are like Kashyyyk tree branches—pick a few.
     aws ec2 describe-subnets \
       --filters Name=vpc-id,Values="$VPC_ID" \
       --query "Subnets[].{SubnetId:SubnetId,Az:AvailabilityZone,Cidr:CidrBlock,MapPublic:MapPublicIpOnLaunch}" \
@@ -291,12 +291,13 @@ Invoke URL:
             audit_events created
     Note: In default VPC you can still make RDS private (PubliclyAccessible=false). Do that.
 Create DB subnet group (using two subnets):
-
-    #galactus: “Subnet group” = Falcon docking permissions.
+```
+    # galactus: “Subnet group” = Falcon docking permissions.
     aws rds create-db-subnet-group \
       --db-subnet-group-name "galactus-dbsubnet-11a" \
       --db-subnet-group-description "Lab 11A subnet group" \
       --subnet-ids "$SUBNET1" "$SUBNET2"
+```
 
 Create DB:
 
@@ -341,19 +342,20 @@ Get endpoint:
     echo "DB_ENDPOINT=$DB_ENDPOINT"
 
 Verify it’s private:
-
-#galactus: “PubliclyAccessible: False” or the Wookiee rips your arm off.
+```
+# Galactus: “PubliclyAccessible: False” or the Wookiee rips your arm off.
 aws rds describe-db-instances --db-instance-identifier "$DB_ID" \
   --query "DBInstances[0].PubliclyAccessible" --output text
+```
 
 Create database + table (one-time)
 You need a MySQL client from somewhere that can reach the DB. For Lab 11A, easiest is:
     CloudShell (if it can reach, depends on networking) or
-    a temporary EC2 in the VPC or
-    your own bastion/VPN setup
+    a temporary EC2 in the VPC or   your own bastion/VPN setup
+
 
 Once connected:
-
+```
     CREATE DATABASE lab11;
     USE lab11;
     
@@ -367,37 +369,41 @@ Once connected:
       source_ip VARCHAR(60),
       request_id VARCHAR(100)
     );
-
+```
         
 8) Proof artifacts
-            CLI outputs + a successful curl that inserts a row
+```
+   CLI outputs + a successful curl that inserts a row
+```
 
 9) Cloudwatch Logs
-
+```
                 aws logs describe-log-streams --log-group-name "/aws/lambda/$LAMBDA_NAME" \
                   --order-by LastEventTime --descending --max-items 1 --output table
-
+```
 
 10) Test it (curl) + prove insert
 
 Invoke:
-
-        #galactus: If this returns DB_WRITE_FAILED, your networking is wrong and you win Lizzo. Good. Learn it.
+```
+        # galactus: If this returns DB_WRITE_FAILED, your networking is wrong and you win Lizzo. Good. Learn it.
         curl -sS -X POST "$INVOKE_URL" \
           -H "content-type: application/json" \
           -d '{"actor":"doctor.ny","action":"VIEW_PATIENT","resource":"patient/12345","note":"Viewed chart"}'
-
+```
 
 Watch logs:
+```
         # galactus watching you.... 
         aws logs tail "/aws/lambda/$LAMBDA_NAME" --since 10m --follow
+```
 
 DB proof (from your MySQL client):
-
+```
         SELECT * FROM audit_events ORDER BY ts_utc DESC LIMIT 5;
+```
 
-
-Incident Response (Lambda + API Gateway + RDS)
+## 11B - Incident Response (Lambda + API Gateway + RDS)
 
 “The system doesn’t need heroes.
 It needs adults.”

@@ -1,0 +1,48 @@
+{
+    "SecurityGroups": [
+        {
+            "GroupId": "sg-06bae7240197386e2",
+            "IpPermissionsEgress": [],
+            "Tags": [
+                {
+                    "Key": "Component",
+                    "Value": "phase11-intake"
+                },
+                {
+                    "Key": "Environment",
+                    "Value": "dev"
+                },
+                {
+                    "Key": "Project",
+                    "Value": "lambda-rbac-bedrock"
+                },
+                {
+                    "Key": "Owner",
+                    "Value": "taaops"
+                }
+            ],
+            "VpcId": "vpc-00907b7da1af5dbb0",
+            "SecurityGroupArn": "arn:aws:ec2:us-west-2:015195098145:security-group/sg-06bae7240197386e2",
+            "OwnerId": "015195098145",
+            "GroupName": "lambda-waf-intake-rds-sg",
+            "Description": "RDS MySQL - 3306 only from the intake Lambda SG",
+            "IpPermissions": [
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 3306,
+                    "ToPort": 3306,
+                    "UserIdGroupPairs": [
+                        {
+                            "Description": "MySQL from intake Lambda only",
+                            "UserId": "015195098145",
+                            "GroupId": "sg-0da2d34c54a32fd92"
+                        }
+                    ],
+                    "IpRanges": [],
+                    "Ipv6Ranges": [],
+                    "PrefixListIds": []
+                }
+            ]
+        }
+    ]
+}

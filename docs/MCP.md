@@ -1,5 +1,120 @@
 # MCP.md — MCP Server Setup, Auth, and Operations
 
+# [MCP Reference README](https://github.com/modelcontextprotocol/python-sdk)
+## Documentation
+
+**The documentation lives at <https://py.sdk.modelcontextprotocol.io/v2/>.**
+
+It has a [Get started guide](https://py.sdk.modelcontextprotocol.io/v2/get-started/), [What's new in v2](https://py.sdk.modelcontextprotocol.io/v2/whats-new/), the [API reference](https://py.sdk.modelcontextprotocol.io/v2/api/mcp/), and the [migration guide](https://py.sdk.modelcontextprotocol.io/v2/migration/).
+
+## What is MCP?
+
+The [Model Context Protocol](https://modelcontextprotocol.io) lets you build servers that expose data and functionality to LLM applications in a secure, standardized way. Think of it like a web API, but designed for LLM interactions. With this SDK you can:
+
+- **Build MCP servers** that expose tools, resources, and prompts to any MCP host
+- **Build MCP clients** that connect to any MCP server
+- Speak every standard transport: stdio, Streamable HTTP, and SSE
+
+## Requirements
+
+Python 3.10+.
+
+## Installation
+
+```bash
+uv add "mcp[cli]==2.0.0b1"          # or: pip install "mcp[cli]==2.0.0b1"
+```
+
+The pin matters while v2 is in pre-release: an unpinned install resolves to the latest stable v1.x, which this README does not describe. Check [PyPI](https://pypi.org/project/mcp/#history) for the newest pre-release, and use `uv run --with "mcp==2.0.0b1"` for one-off commands.
+
+## A server in 15 lines
+
+Create a `server.py`:
+
+<!-- snippet-source docs_src/index/tutorial001.py -->
+```python
+from mcp.server import MCPServer
+
+mcp = MCPServer("Demo")
+
+
+@mcp.tool()
+def add(a: int, b: int) -> int:
+    """Add two numbers."""
+    return a + b
+
+
+@mcp.resource("greeting://{name}")
+def greeting(name: str) -> str:
+    """Greet someone by name."""
+    return f"Hello, {name}!"
+```
+
+_Full example: [docs_src/index/tutorial001.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs_src/index/tutorial001.py)_
+<!-- /snippet-source -->
+
+That's a complete MCP server: one tool, one templated resource. Open it in the [MCP Inspector](https://github.com/modelcontextprotocol/inspector):
+
+```bash
+uv run mcp dev server.py
+```
+
+Call `add` with `a=1`, `b=2` and you get `3` back.
+
+Notice what you did **not** write: no JSON Schema (`a: int, b: int` _is_ the schema), no request parsing, no validation code, no protocol handling. Two type-hinted Python functions and a docstring.
+
+[Get started](https://py.sdk.modelcontextprotocol.io/v2/get-started/) takes it from here.
+
+## A client in 10 lines
+
+The same package is a full MCP **client**. `Client` connects to a URL, a stdio subprocess, a custom transport, or (for tests) straight to a server object in memory with no transport at all:
+
+```python
+import asyncio
+
+from mcp import Client
+
+from server import mcp
+
+
+async def main() -> None:
+    async with Client(mcp) as client:
+        result = await client.call_tool("add", {"a": 1, "b": 2})
+        print(result.structured_content)  # {'result': 3}
+
+
+asyncio.run(main())
+```
+
+Swap `mcp` for `"http://localhost:8000/mcp"` and the exact same code talks to a remote server.
+
+## Contributing
+
+We are passionate about supporting contributors of all levels of experience and would love to see you get involved in the project. See the [contributing guide](https://github.com/modelcontextprotocol/python-sdk/blob/main/CONTRIBUTING.md) to get started.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](https://github.com/modelcontextprotocol/python-sdk/blob/main/LICENSE) file for details.
+
+[pypi-badge]: https://img.shields.io/pypi/v/mcp.svg
+[pypi-url]: https://pypi.org/project/mcp/
+[mit-badge]: https://img.shields.io/pypi/l/mcp.svg
+[mit-url]: https://github.com/modelcontextprotocol/python-sdk/blob/main/LICENSE
+[python-badge]: https://img.shields.io/pypi/pyversions/mcp.svg
+[python-url]: https://www.python.org/downloads/
+[docs-badge]: https://img.shields.io/badge/docs-python--sdk-blue.svg
+[docs-url]: https://py.sdk.modelcontextprotocol.io/v2/
+[protocol-badge]: https://img.shields.io/badge/protocol-modelcontextprotocol.io-blue.svg
+[protocol-url]: https://modelcontextprotocol.io
+[spec-badge]: https://img.shields.io/badge/spec-spec.modelcontextprotocol.io-blue.svg
+[spec-url]: https://modelcontextprotocol.io/specification/latest
+
+
+
+---
+
+# MCP PROJECT DETAILS
+
 Reference for this project's Model Context Protocol (MCP) integration. Two
 servers share the auth/deployment patterns documented here:
 
@@ -11,7 +126,6 @@ servers share the auth/deployment patterns documented here:
    inference server on a container-image Lambda. `mcp.tf.txt` at the repo
    root holds its unwired gateway/authorizer Terraform.
 
----
 
 ## 0. `soar-agents` — local stdio prototype (current)
 
@@ -250,6 +364,7 @@ Requires: aws cli, jq, curl.
 | `import fastmcp` vs `from mcp.server.fastmcp import FastMCP` confusion | Two projects: standalone FastMCP vs SDK-bundled FastMCP. This repo uses the SDK-bundled one |
 
 ---
+# GLOSSARY
 
 ## 8. Reading list
 
@@ -262,3 +377,46 @@ Requires: aws cli, jq, curl.
 - API GW JWT authorizers: https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-jwt-authorizer.html
 - Cognito token endpoint / client_credentials: https://docs.aws.amazon.com/cognito/latest/developerguide/token-endpoint.html
 - SSM Parameter Store: https://docs.aws.amazon.com/systems-manager/latest/userguide/systems-manager-parameter-store.html
+
+
+ MCP fundamentals (start here)
+
+  - https://modelcontextprotocol.io — the spec site's Concepts pages (Architecture, Tools, Resources, Prompts, Transports) are the best short read on the mental model: client ↔
+  server, what a tool actually is, stdio vs streamable HTTP. Read "Transports" before testing — it explains exactly what claude mcp add ... -- python ... is doing under the
+  hood.
+  - MCP Python SDK docs — https://github.com/modelcontextprotocol/python-sdk — the README's FastMCP examples map one-to-one onto mcp-server/mcp_server.py (decorators,
+  type-hints-as-schema, mcp.run()). Reading it next to your own server is the fastest way to internalize the SDK.
+  - Claude Code MCP docs — https://code.claude.com/docs/en/mcp — covers scopes (local/project/user), .mcp.json approval behavior, and the /mcp panel you'll use during testing.
+  - MCP Inspector — npx @modelcontextprotocol/inspector python mcp-server/mcp_server.py — not reading material, but the single most useful learning tool: a browser UI that
+  connects to your server, lists tools, and lets you invoke them with hand-typed arguments outside Claude Code. Great for isolating "is this a server bug or a client-config
+  problem" while you test today.
+
+  The auth story behind "Claude Connection"
+
+  - MCP Authorization spec — the Authorization section under specification at modelcontextprotocol.io — explains the intended OAuth flow, including why the client expects
+  dynamic client registration; makes the Cognito gap concrete.
+  - RFC 7591 (Dynamic Client Registration) — skim the intro only; it's the thing Cognito lacks. RFC 7636 (PKCE) — likewise short, and explains why your no-secret app client
+  requires the code flow to be PKCE'd.
+  - Cognito: resource servers & custom scopes — the "Scopes, M2M, and API authorization with resource servers" page in the Cognito developer guide. This is the definitive
+  answer to the sentence you quoted — which flows can mint rbac-api/user and which can't.
+  - Cognito token endpoint & client_credentials — https://docs.aws.amazon.com/cognito/latest/developerguide/token-endpoint.html — the exact request you'd script for the M2M
+  header path.
+  - API Gateway HTTP API JWT authorizers — https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-jwt-authorizer.html — short; pay attention to the
+  audience-matching rules (it's where the M2M-client-ID-in-audience gotcha comes from).
+
+  Hosting MCP on AWS (for the promotion step)
+
+  - awslabs/run-model-context-protocol-servers-with-aws-lambda (GitHub) — AWS's reference for exactly your target architecture; worth reading their transport/session handling
+  before writing your own.
+  - AWS Lambda Web Adapter — https://github.com/awslabs/aws-lambda-web-adapter — the piece that lets the FastMCP ASGI app run unchanged on Lambda; the README covers
+  AWS_LWA_INVOKE_MODE and the $PORT contract from your MCP.md §4.
+  - awslabs/mcp (GitHub) — AWS's own suite of MCP servers (CloudWatch, DynamoDB, Bedrock, etc.). Two uses: as prior art for tool design (naming, pagination, read-only defaults
+  — compare with your list_findings), and because running their CloudWatch/DynamoDB servers alongside soar-agents could replace some manual aws CLI spelunking during incident
+  drills.
+
+  Agent/SOAR side (lighter priority)
+
+  - Anthropic's "Building effective agents" essay (anthropic.com/engineering) — the deterministic-workflow-vs-agent distinction it draws is the design principle your Phase 12
+  doc already follows (Bedrock explains, playbook selection stays deterministic); good vocabulary for defending that design.
+  - Bedrock InvokeModel + inference profiles docs — relevant when a bedrock:InvokeModel IAM error shows up with the us.anthropic... cross-region profile IDs; the
+  inference-profiles page explains why the resource ARNs span regions.

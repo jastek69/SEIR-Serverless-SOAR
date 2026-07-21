@@ -91,6 +91,24 @@ def decimal_to_native(value: Any) -> Any:
     return value
 
 
+def native_to_dynamodb(value: Any) -> Any:
+    """Convert Python floats into Decimal for DynamoDB writes."""
+
+    if isinstance(value, list):
+        return [native_to_dynamodb(item) for item in value]
+
+    if isinstance(value, dict):
+        return {
+            key: native_to_dynamodb(item)
+            for key, item in value.items()
+        }
+
+    if isinstance(value, float):
+        return Decimal(str(value))
+
+    return value
+
+
 def get_recent_events(
     window_minutes: int,
 ) -> tuple[list[dict[str, Any]], datetime, datetime]:
@@ -727,7 +745,9 @@ def save_finding(
         "evidence": evidence_package,
     }
 
-    findings_table.put_item(Item=item)
+    findings_table.put_item(
+        Item=native_to_dynamodb(item)
+    )
 
     print(
         f"Saved correlation finding {finding_id} "

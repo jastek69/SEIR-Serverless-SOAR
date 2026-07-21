@@ -227,7 +227,7 @@ Add to Lambda role:
         }
 
 Example (Claude)
-Moodify Lambda unused-token-detector.py
+Modify Lambda unused-token-detector.py
 
         #Python
         import boto3
