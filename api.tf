@@ -131,6 +131,22 @@ resource "aws_api_gateway_stage" "PythonStage" {
   depends_on = [aws_api_gateway_account.api_gateway_cloudwatch]
 }
 
+# Published for cross-root consumers (e.g. the stability_ai workstation
+# root's M2M worker) that need the current invoke URL without hardcoding
+# it — this changes on every destroy/redeploy cycle (new API Gateway ID),
+# same reason /jobs/queue-urls and /jobs/table-name are already published
+# this way in modules/jobs/ssm.tf. This one lives at root level (not in
+# that module) because PythonStage is a root resource, not something
+# modules/jobs owns.
+resource "aws_ssm_parameter" "api_invoke_url" {
+  name        = "/jobs/api-invoke-url"
+  description = "Current PythonAPI prod stage invoke URL (jobs module handshake) — POST/GET /jobs hang off this base"
+  type        = "String"
+  value       = aws_api_gateway_stage.PythonStage.invoke_url
+
+  tags = var.common_tags
+}
+
 # API Gateway Throttling - Python
 # https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/api_gateway_method_settings
 resource "aws_api_gateway_method_settings" "PythonStageThrottle" {
