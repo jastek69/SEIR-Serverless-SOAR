@@ -186,6 +186,89 @@ variable "waf_rate_limit" {
   default     = 100
 }
 
+# --- Unused-token detector / SOAR (FinOps knobs — turn these down while
+# other parts of the stack are under test; the token pipeline itself is
+# already verified working) ---------------------------------------------
+
+variable "unused_token_schedule_rate_minutes" {
+  description = "How often EventBridge Scheduler invokes the unused-token detector. Lower = more current detection but more Lambda/Bedrock invocations."
+  type        = number
+  default     = 15
+}
+
+variable "unused_token_threshold_minutes" {
+  description = "Age (minutes) before a tracked token is considered unused and eligible for revocation."
+  type        = number
+  default     = 15
+}
+
+# the detector calls Bedrock and writes a SOAR report every single cycle, even when zero unused tokens are found — 
+# this is a recurring cost that can be avoided by setting this to false while other parts of the stack are under test.
+# Set it false and the detector only calls Bedrock (and writes a report) when it actually finds something, or when you manually force it with (force_soar: true).
+  variable "soar_generate_on_empty" {
+  description = "Whether the unused-token detector generates a Bedrock SOAR report even when no stale tokens are found. Set false to cut the recurring Bedrock cost while other parts of the stack are under test."
+  type        = bool
+  default     = true
+}
+
+# --- WAF threat correlation agent (Phase 12) -----------------------------
+
+variable "waf_correlation_schedule_rate_minutes" {
+  description = "How often EventBridge Scheduler invokes the WAF threat correlation agent."
+  type        = number
+  default     = 60
+}
+
+variable "waf_correlation_window_minutes" {
+  description = "Lookback window (minutes) the correlation agent scans for WAF events. Keep in sync with waf_correlation_schedule_rate_minutes unless you have a specific reason to diverge (e.g. overlap for safety margin)."
+  type        = number
+  default     = 60
+}
+
+variable "waf_correlation_minimum_event_count" {
+  description = "Minimum WAF events from one source within the window before correlation flags it."
+  type        = number
+  default     = 3
+}
+
+variable "waf_correlation_max_events" {
+  description = "Max WAF events scanned per correlation run."
+  type        = number
+  default     = 500
+}
+
+# --- SOAR response / executive dashboard ----------------------------------
+
+variable "enable_bedrock_soar" {
+  description = "Whether the SOAR response and executive-dashboard agents call Bedrock. Set false to cut Bedrock cost while testing other parts of the pipeline (findings/incidents still get created, just without the AI-authored summary)."
+  type        = bool
+  default     = true
+}
+
+variable "executive_report_period_hours" {
+  description = "Lookback window (hours) for the executive dashboard report."
+  type        = number
+  default     = 24
+}
+
+variable "executive_report_max_items_per_table" {
+  description = "Max items scanned per table when building the executive report."
+  type        = number
+  default     = 5000
+}
+
+variable "executive_report_organization_name" {
+  description = "Organization name shown on executive PDF/JSON reports."
+  type        = string
+  default     = "SEIR Cloud Security"
+}
+
+variable "executive_report_title" {
+  description = "Title shown on executive PDF/JSON reports."
+  type        = string
+  default     = "Executive Security Report"
+}
+
 # Count Mode variables for testing before blocking
 variable "api_throttle_rate_limit" {
   description = "Steady-state requests per second limit for API Gateway stage throttling."

@@ -534,7 +534,7 @@ def lambda_handler(event, context):
     }
 ```
 
-## src/unused_token_detector.py
+## agent/unused_token_detector.py
 
 ```python
 import json

@@ -362,7 +362,7 @@ EOT
 # WAF Lambda
 data "archive_file" "waf_bedrock_analyzer" {
   type        = "zip"
-  source_file = "./src/waf_bedrock_analyzer.py"
+  source_file = "./agent/waf_bedrock_analyzer.py"
   output_path = "./lambda/waf_bedrock_analyzer.zip"
 }
 

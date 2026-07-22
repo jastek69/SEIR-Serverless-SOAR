@@ -354,6 +354,16 @@ def retrieve_reporting_data(
 
     minimum_epoch = int(previous_start.timestamp())
 
+    # Tolerant filter: items written after the created_epoch fields shipped
+    # get pushed down server-side like waf-events' event_epoch always has;
+    # older items (written before that field existed) still lack it, so
+    # they're intentionally still returned here and caught by the existing
+    # client-side filter_records_by_period() below instead of silently
+    # disappearing from reports.
+    epoch_or_missing = Attr("created_epoch").gte(minimum_epoch) | Attr(
+        "created_epoch"
+    ).not_exists()
+
     print("Reading WAF event records.")
 
     waf_events = scan_table(
@@ -363,11 +373,11 @@ def retrieve_reporting_data(
 
     print("Reading correlation findings.")
 
-    findings = scan_table(findings_table)
+    findings = scan_table(findings_table, epoch_or_missing)
 
     print("Reading security incidents.")
 
-    incidents = scan_table(incidents_table)
+    incidents = scan_table(incidents_table, epoch_or_missing)
 
     print(
         f"Retrieved {len(waf_events)} WAF event(s), "
@@ -705,14 +715,14 @@ def build_period_metrics(
         data["findings"],
         period_start,
         period_end,
-        ["created_at", "window_end"],
+        ["created_epoch", "created_at", "window_end"],
     )
 
     incidents = filter_records_by_period(
         data["incidents"],
         period_start,
         period_end,
-        ["created_at"],
+        ["created_epoch", "created_at"],
     )
 
     return {

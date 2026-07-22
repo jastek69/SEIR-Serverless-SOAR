@@ -128,8 +128,20 @@ resource "aws_lambda_function" "node_lambda" {
 
 data "archive_file" "python_lambda" {
   type        = "zip"
-  source_dir  = "./src"
   output_path = "./lambda/python_lambda.zip"
+
+  # Only this function's own handler + the shared token_tracking helper it
+  # imports — not source_dir = "./src" (which zipped the WHOLE directory,
+  # so any unrelated file changing in ./src forced a redeploy of this and
+  # every other source_dir-based Lambda alongside it).
+  source {
+    content  = file("./src/python_lambda.py")
+    filename = "python_lambda.py"
+  }
+  source {
+    content  = file("./src/token_tracking.py")
+    filename = "token_tracking.py"
+  }
 }
 
 
@@ -191,8 +203,16 @@ resource "aws_lambda_function" "get_token" {
 # RBAC
 data "archive_file" "python_rbac" {
   type        = "zip"
-  source_dir  = "./src"
   output_path = "./lambda/python_rbac.zip"
+
+  source {
+    content  = file("./src/python_rbac.py")
+    filename = "python_rbac.py"
+  }
+  source {
+    content  = file("./src/token_tracking.py")
+    filename = "token_tracking.py"
+  }
 }
 
 resource "aws_lambda_function" "python_rbac" {
@@ -252,8 +272,16 @@ resource "aws_lambda_function" "immediate_rbac_check_66" {
 
 data "archive_file" "verify_groups" {
   type        = "zip"
-  source_dir  = "./src"
   output_path = "./lambda/verify_groups.zip"
+
+  source {
+    content  = file("./src/verify_groups.py")
+    filename = "verify_groups.py"
+  }
+  source {
+    content  = file("./src/token_tracking.py")
+    filename = "token_tracking.py"
+  }
 }
 
 
@@ -304,7 +332,7 @@ resource "aws_lambda_function" "update_token" {
 # Retrieve extra tokens to use for API calls - check for unused tokens
 data "archive_file" "unused_token_detector" {
   type        = "zip"
-  source_file = "./src/unused_token_detector.py"
+  source_file = "./agent/unused_token_detector.py"
   output_path = "./lambda/unused_token_detector.zip"
 }
 resource "aws_lambda_function" "unused_token_detector" {
@@ -321,7 +349,7 @@ resource "aws_lambda_function" "unused_token_detector" {
     variables = {
       TOKEN_TRACKING_TABLE           = aws_dynamodb_table.dynamoDb_token_tracking.name
       UNUSED_TOKEN_ALERT_TOPIC_ARN   = aws_sns_topic.unused_token_alerts.arn
-      UNUSED_TOKEN_THRESHOLD_MINUTES = "15"
+      UNUSED_TOKEN_THRESHOLD_MINUTES = tostring(var.unused_token_threshold_minutes)
       TRANSLATION_BUCKET             = module.taaops_translation.input_bucket_name
       BEDROCK_MODEL_ID               = var.bedrock_claude_model_id
       SOAR_PROMPT_PARAM_NAME         = "/bedrock/soar-prompt"
@@ -331,7 +359,7 @@ resource "aws_lambda_function" "unused_token_detector" {
       SOAR_TARGET_WORDS              = "0"
       SOAR_MAX_BULLETS_PER_SECTION   = "0"
       SOAR_RISK_FOCUS                = "all"
-      SOAR_GENERATE_ON_EMPTY         = "true"
+      SOAR_GENERATE_ON_EMPTY         = tostring(var.soar_generate_on_empty)
       REVOKE_TOKEN_FUNCTION_NAME     = aws_lambda_function.revoke_token.function_name
     }
   }

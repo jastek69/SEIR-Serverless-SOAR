@@ -528,11 +528,16 @@ def create_incident(
     finding_id = finding["finding_id"]
     incident_id = build_incident_id(finding_id)
     now = utc_now()
+    # Numeric companion to created_at so downstream scans (e.g. the
+    # executive dashboard) can filter server-side instead of pulling the
+    # whole table every run — same pattern as waf-events' event_epoch.
+    now_epoch = int(datetime.now(timezone.utc).timestamp())
 
     incident = {
         "incident_id": incident_id,
         "finding_id": finding_id,
         "created_at": now,
+        "created_epoch": now_epoch,
         "updated_at": now,
         "severity": playbook["severity"],
         "priority": playbook["priority"],

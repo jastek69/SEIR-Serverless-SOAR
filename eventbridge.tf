@@ -14,7 +14,8 @@ resource "aws_cloudwatch_log_group" "token_log_group" {
 # unused_token_detector Lambda function defined in lambda.tf
 
 
-# Eventbridge Scheduler for unused token detection - triggers every 5 minutes to check for unused tokens and revoke them
+# Eventbridge Scheduler for unused token detection - checks for unused tokens
+# and revokes them, on a rate controlled by var.unused_token_schedule_rate_minutes.
 resource "aws_scheduler_schedule" "unused_token_schedule" {
   name       = "Invoke-unused-token-schedule"
   group_name = "default"
@@ -23,7 +24,7 @@ resource "aws_scheduler_schedule" "unused_token_schedule" {
     mode = "OFF"
   }
 
-  schedule_expression = "rate(5 minutes)"
+  schedule_expression = "rate(${var.unused_token_schedule_rate_minutes} minutes)"
 
   target {
     arn      = aws_lambda_function.unused_token_detector.arn

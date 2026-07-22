@@ -141,9 +141,9 @@ resource "aws_lambda_function" "correlation_agent" {
       WAF_EVENTS_TABLE           = aws_dynamodb_table.dynamoDb_waf_events.name
       CORRELATION_FINDINGS_TABLE = aws_dynamodb_table.waf_correlation_findings.name
       BEDROCK_MODEL_ID           = var.bedrock_waf_model_id
-      CORRELATION_WINDOW_MINUTES = "60"
-      MINIMUM_EVENT_COUNT        = "3"
-      MAX_EVENTS                 = "500"
+      CORRELATION_WINDOW_MINUTES = tostring(var.waf_correlation_window_minutes)
+      MINIMUM_EVENT_COUNT        = tostring(var.waf_correlation_minimum_event_count)
+      MAX_EVENTS                 = tostring(var.waf_correlation_max_events)
       EVENT_BUS_NAME             = "default"
     }
   }
@@ -156,7 +156,8 @@ resource "aws_cloudwatch_log_group" "correlation_agent" {
   retention_in_days = 60
 }
 
-# Hourly run to match the 60-minute correlation window.
+# Rate should match var.waf_correlation_window_minutes (see that variable's
+# description) unless you have a specific reason to diverge.
 resource "aws_scheduler_schedule" "correlation_agent" {
   name       = "Invoke-waf-threat-correlation-agent"
   group_name = "default"
@@ -165,7 +166,7 @@ resource "aws_scheduler_schedule" "correlation_agent" {
     mode = "OFF"
   }
 
-  schedule_expression = "rate(60 minutes)"
+  schedule_expression = "rate(${var.waf_correlation_schedule_rate_minutes} minutes)"
 
   target {
     arn      = aws_lambda_function.correlation_agent.arn
@@ -267,7 +268,7 @@ resource "aws_iam_role_policy" "soar_response_agent_access" {
 
 data "archive_file" "soar_response_agent" {
   type        = "zip"
-  source_file = "${path.module}/src/soar_response_agent.py"
+  source_file = "${path.module}/agent/soar_response_agent.py"
   output_path = "${path.module}/lambda/soar_response_agent.zip"
 }
 
@@ -287,7 +288,7 @@ resource "aws_lambda_function" "soar_response_agent" {
       SECURITY_INCIDENTS_TABLE   = aws_dynamodb_table.security_incidents.name
       SNS_TOPIC_ARN              = aws_sns_topic.soar_notifications.arn
       BEDROCK_MODEL_ID           = var.bedrock_waf_model_id
-      ENABLE_BEDROCK             = "true"
+      ENABLE_BEDROCK             = tostring(var.enable_bedrock_soar)
     }
   }
 
@@ -481,11 +482,11 @@ resource "aws_lambda_function" "executive_dashboard_agent" {
       REPORT_BUCKET              = aws_s3_bucket.executive_reports.bucket
       REPORT_PREFIX              = "executive-reports"
       BEDROCK_MODEL_ID           = var.bedrock_waf_model_id
-      ENABLE_BEDROCK             = "true"
-      REPORT_PERIOD_HOURS        = "24"
-      MAX_ITEMS_PER_TABLE        = "5000"
-      ORGANIZATION_NAME          = "SEIR Cloud Security"
-      REPORT_TITLE               = "Executive Security Report"
+      ENABLE_BEDROCK             = tostring(var.enable_bedrock_soar)
+      REPORT_PERIOD_HOURS        = tostring(var.executive_report_period_hours)
+      MAX_ITEMS_PER_TABLE        = tostring(var.executive_report_max_items_per_table)
+      ORGANIZATION_NAME          = var.executive_report_organization_name
+      REPORT_TITLE               = var.executive_report_title
     }
   }
 

@@ -705,7 +705,12 @@ def save_finding(
     """Store the final correlation finding."""
 
     finding_id = str(uuid.uuid4())
-    created_at = datetime.now(timezone.utc).isoformat()
+    created_at_dt = datetime.now(timezone.utc)
+    created_at = created_at_dt.isoformat()
+    # Numeric companion to created_at so downstream scans (e.g. the
+    # executive dashboard) can filter server-side like waf-events'
+    # event_epoch does, instead of pulling the whole table every run.
+    created_epoch = int(created_at_dt.timestamp())
 
     risk_score, severity, primary_source_ip = (
         determine_overall_risk(evidence_package)
@@ -725,6 +730,7 @@ def save_finding(
     item = {
         "finding_id": finding_id,
         "created_at": created_at,
+        "created_epoch": created_epoch,
         "window_start": evidence_package[
             "analysis_window"
         ]["start"],
