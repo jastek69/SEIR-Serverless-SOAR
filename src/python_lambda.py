@@ -1,11 +1,31 @@
+import copy
 import json
 from datetime import datetime
 
 from token_tracking import mark_token_used
 
 
+def redact_event_for_logging(event):
+    """Return a copy of the event with bearer tokens redacted — safe to
+    log. Never log the real event: API Gateway proxy events carry the
+    caller's live Authorization header in both headers and
+    multiValueHeaders, and Lambda's own request/response logging is
+    plaintext in CloudWatch for however long the log group retains it."""
+
+    redacted = copy.deepcopy(event)
+
+    for header_key in ("headers", "multiValueHeaders"):
+        headers = redacted.get(header_key)
+        if isinstance(headers, dict):
+            for name in list(headers.keys()):
+                if name.lower() == "authorization":
+                    headers[name] = "[REDACTED]"
+
+    return redacted
+
+
 def lambda_handler(event, context):
-    print("Incoming event:", json.dumps(event))
+    print("Incoming event:", json.dumps(redact_event_for_logging(event)))
 
     # queryStringParameters can be null in API Gateway proxy events.
     query_params = event.get("queryStringParameters") or {}

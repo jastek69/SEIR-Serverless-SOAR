@@ -7,6 +7,28 @@ function utcIsoNow() {
     return new Date().toISOString();
 }
 
+// Return a copy of the event with bearer tokens redacted — safe to log.
+// Never log the real event: API Gateway proxy events carry the caller's
+// live Authorization header in both headers and multiValueHeaders, and
+// Lambda's own console.log output is plaintext in CloudWatch for however
+// long the log group retains it.
+function redactEventForLogging(event) {
+    const redacted = JSON.parse(JSON.stringify(event));
+
+    for (const key of ["headers", "multiValueHeaders"]) {
+        const headers = redacted[key];
+        if (headers && typeof headers === "object") {
+            for (const name of Object.keys(headers)) {
+                if (name.toLowerCase() === "authorization") {
+                    headers[name] = "[REDACTED]";
+                }
+            }
+        }
+    }
+
+    return redacted;
+}
+
 async function markTokenUsed(claims, requestId) {
     const tokenIds = [];
     for (const key of ["jti", "origin_jti"]) {
@@ -47,7 +69,7 @@ async function markTokenUsed(claims, requestId) {
 }
 
 exports.handler = async (event, context) => {
-    console.log("Incoming event:", JSON.stringify(event));
+    console.log("Incoming event:", JSON.stringify(redactEventForLogging(event)));
 
     const name = event.queryStringParameters?.name || "Unknown";
 

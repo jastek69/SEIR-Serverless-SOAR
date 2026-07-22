@@ -83,6 +83,70 @@ resource "aws_cognito_user_pool_client" "cognito_rbac_pool_client" {
   supported_identity_providers = ["COGNITO"]
 }
 
+# M2M (client_credentials) app client — for headless/automated callers that
+# can't do the browser-based Authorization Code + PKCE flow above (e.g. the
+# stability_ai GPU workstation submitting comfyui_gen jobs to POST /jobs).
+# No user involved -> no MFA, no cognito:groups claim at all; submit_job.py
+# maps a token with no groups but the rbac-api/user scope to the "m2m"
+# pseudo-group, which group_entitlements already treats like any other
+# group. Reuses the SAME resource server/scope as the human client above —
+# no separate scope needed for machine callers today.
+#
+# Same pattern docs/MCP.md already anticipated for future M2M callers
+# (e.g. the not-yet-built ml-tools MCP server) — this client and its SSM
+# paths are shared infrastructure, not stability_ai-specific, so a second
+# M2M consumer later doesn't need its own client.
+resource "aws_cognito_user_pool_client" "m2m_client" {
+  name                                 = "rbac-m2m-client"
+  user_pool_id                         = aws_cognito_user_pool.cognito_rbac_pool.id
+  generate_secret                      = true
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_flows                  = ["client_credentials"]
+  allowed_oauth_scopes = [
+    "${aws_cognito_resource_server.rbac_api_resource_server.identifier}/user"
+  ]
+
+  # client_credentials is pure server-to-server token issuance — no
+  # redirect involved, so no callback/logout URLs needed (unlike the code
+  # grant above, which requires them even when unused).
+
+  # Default access-token validity is 1h; an unattended workstation
+  # shouldn't have to re-mint that often.
+  access_token_validity = 8
+  token_validity_units {
+    access_token = "hours"
+  }
+
+  supported_identity_providers = ["COGNITO"]
+}
+
+# Published so any M2M caller (this account, this repo's Cognito pool) can
+# mint tokens without a hardcoded/copy-pasted secret. Client ID is not
+# sensitive on its own; the secret is SecureString. Whatever IAM role
+# actually calls ssm:GetParameter here (e.g. stability_ai's own Lambda/EC2
+# role, defined in that repo) needs a policy statement granting
+# ssm:GetParameter + kms:Decrypt on these two parameter ARNs — that grant
+# lives in the CONSUMING repo, not here, same as any other cross-project
+# IAM policy reference.
+resource "aws_ssm_parameter" "m2m_client_id" {
+  name        = "/mcp/auth/m2m-client-id"
+  description = "Cognito M2M app client ID (rbac-m2m-client) — client_credentials grant, rbac-api/user scope"
+  type        = "String"
+  value       = aws_cognito_user_pool_client.m2m_client.id
+}
+
+resource "aws_ssm_parameter" "m2m_client_secret" {
+  name        = "/mcp/auth/m2m-client-secret"
+  description = "Cognito M2M app client secret (rbac-m2m-client) — never in code or committed files, read this at call time"
+  type        = "SecureString"
+  value       = aws_cognito_user_pool_client.m2m_client.client_secret
+}
+
+output "m2m_token_endpoint" {
+  description = "POST here with grant_type=client_credentials (HTTP Basic client_id:secret) to mint an M2M access token"
+  value       = "https://${aws_cognito_user_pool_domain.cognito_rbac_pool_domain.domain}.auth.${var.region}.amazoncognito.com/oauth2/token"
+}
+
 # Domain for the Cognito User Pool, required for OAuth flows. This can be a Cognito hosted domain or a custom domain if you have a Route53 zone.
 
 resource "aws_cognito_user_pool_domain" "cognito_rbac_pool_domain" {
